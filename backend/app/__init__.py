@@ -6,7 +6,9 @@ from flask import Flask
 import app.models
 from app.config import config_by_name
 from app.extensions import cors, db, jwt, migrate
+from app.routes.admin_routes import admin_bp
 from app.routes.auth_routes import auth_bp
+from app.routes.content_routes import content_bp
 from app.routes.health_routes import health_bp
 from app.seed import register_seed_commands
 from app.services.auth_service import is_token_revoked
@@ -39,6 +41,8 @@ def create_app(config_name=None):
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(content_bp)
+    app.register_blueprint(admin_bp)
     register_seed_commands(app)
 
     register_error_handlers(app)
