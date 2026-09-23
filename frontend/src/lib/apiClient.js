@@ -14,6 +14,36 @@ export class ApiError extends Error {
   }
 }
 
+function getAuthToken() {
+  try {
+    const raw = window.sessionStorage.getItem('ci_session')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      return parsed.token || parsed.access_token || parsed.data?.access_token || null
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function unwrapPayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload
+  if (payload.success === true && payload.data !== undefined) {
+    const d = payload.data
+    if (d && typeof d === 'object' && !Array.isArray(d)) {
+      const keys = Object.keys(d)
+      if (keys.length === 1 && Array.isArray(d[keys[0]])) {
+        const arr = d[keys[0]]
+        arr[keys[0]] = arr
+        return arr
+      }
+    }
+    return d
+  }
+  return payload
+}
+
 async function request(path, { method = 'GET', body, params, signal } = {}) {
   let query = ''
   if (params) {
@@ -25,11 +55,20 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
     if (qs) query = `?${qs}`
   }
 
+  const headers = {}
+  if (body) {
+    headers['Content-Type'] = 'application/json'
+  }
+  const token = getAuthToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   let response
   try {
     response = await fetch(`${BASE_URL}${path}${query}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal,
       credentials: 'include',
@@ -50,12 +89,6 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
         throw new ApiError('The server returned a response that was not valid JSON.', response.status, text)
       }
     } else {
-      // No backend is wired up at BASE_URL yet: dev servers (and most static
-      // hosts) answer unknown paths like `/api/...` with their own index.html
-      // (200 OK, text/html) instead of a 404. Treating that HTML as data used
-      // to silently get passed on to pages expecting arrays/objects, which
-      // then crashed while rendering (e.g. `html.map is not a function`) and
-      // blanked the whole app. Surface it as a normal API error instead.
       throw new ApiError(
         response.ok
           ? 'No API server found at this address — got an HTML page instead of JSON. Set VITE_API_BASE_URL to your backend URL.'
@@ -67,11 +100,11 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
   }
 
   if (!response.ok) {
-    const message = (payload && payload.message) || `Request failed (${response.status})`
+    const message = (payload && (payload.message || (payload.errors?.[0]?.message))) || `Request failed (${response.status})`
     throw new ApiError(message, response.status, payload)
   }
 
-  return payload
+  return unwrapPayload(payload)
 }
 
 export const apiClient = {

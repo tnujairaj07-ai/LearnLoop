@@ -156,9 +156,9 @@ export default function QuestionManagementPage() {
               <Table columns={['Question', 'Difficulty', 'Skill tags', '']}>
                 {questionsApi.data.map((q) => (
                   <tr key={q.id}>
-                    <td className="max-w-md px-3 py-2">{q.text}</td>
-                    <td className="px-3 py-2 capitalize">{q.difficulty}</td>
-                    <td className="px-3 py-2 text-ink-faint">{(q.skillTags || []).join(', ') || '—'}</td>
+                    <td className="max-w-md px-3 py-2">{q.text || q.question_text}</td>
+                    <td className="px-3 py-2 capitalize">{q.difficulty === 1 ? 'Easy' : q.difficulty === 2 ? 'Medium' : q.difficulty === 3 ? 'Hard' : q.difficulty}</td>
+                    <td className="px-3 py-2 text-ink-faint">{(q.skillTags || (q.skill_name ? [q.skill_name] : [])).join(', ') || '—'}</td>
                     <td className="px-3 py-2 text-right">
                       <button type="button" className="btn btn-ghost px-2 py-1 text-xs" onClick={() => openEdit(q)}>
                         Edit

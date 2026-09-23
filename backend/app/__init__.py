@@ -11,6 +11,7 @@ from app.routes.assessment_routes import assessment_bp
 from app.routes.auth_routes import auth_bp
 from app.routes.content_routes import content_bp
 from app.routes.health_routes import health_bp
+from app.routes.student_routes import student_bp
 from app.seed import register_seed_commands
 from app.services.auth_service import is_token_revoked
 from app.utils.errors import register_error_handlers
@@ -45,6 +46,7 @@ def create_app(config_name=None):
     app.register_blueprint(content_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(assessment_bp)
+    app.register_blueprint(student_bp)
     register_seed_commands(app)
 
     register_error_handlers(app)

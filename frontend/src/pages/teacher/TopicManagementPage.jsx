@@ -106,8 +106,8 @@ export default function TopicManagementPage() {
               <Table columns={['Order', 'Name', 'Description', '']}>
                 {topicsApi.data.map((topic) => (
                   <tr key={topic.id}>
-                    <td className="px-3 py-2 tabular-nums">{topic.order ?? '—'}</td>
-                    <td className="px-3 py-2 font-medium">{topic.name}</td>
+                    <td className="px-3 py-2 tabular-nums">{topic.order ?? topic.order_index ?? '—'}</td>
+                    <td className="px-3 py-2 font-medium">{topic.name || topic.title}</td>
                     <td className="max-w-sm truncate px-3 py-2 text-ink-faint">{topic.description}</td>
                     <td className="px-3 py-2 text-right">
                       <button type="button" className="btn btn-ghost px-2 py-1 text-xs" onClick={() => openEdit(topic)}>

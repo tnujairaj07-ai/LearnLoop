@@ -357,6 +357,25 @@ class AssessmentService:
         ScoringService.score_attempt(attempt)
         db.session.commit()
 
+        # Trigger explainable learning intelligence pipeline (fail-safe and observable)
+        try:
+            from app.services.mastery_service import MasteryService
+            from app.services.error_pattern_service import ErrorPatternService
+            from app.services.recommendation_service import RecommendationService
+
+            topics_in_assessment = {
+                aq.question.topic_id
+                for aq in attempt.assessment.questions
+                if aq.question and aq.question.topic_id
+            }
+            for t_id in topics_in_assessment:
+                MasteryService.calculate_and_persist_mastery(student_id, t_id)
+                ErrorPatternService.detect_and_persist_flags(student_id, t_id)
+                RecommendationService.generate_recommendations(student_id, t_id)
+        except Exception as e:
+            from flask import current_app
+            current_app.logger.error("Learning intelligence pipeline encountered an error: %s", e)
+
         return AssessmentService.get_attempt_result(attempt_id, user_role="student", user_id=student_id)
 
     @staticmethod

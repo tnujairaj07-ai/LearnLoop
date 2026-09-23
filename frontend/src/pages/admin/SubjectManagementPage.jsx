@@ -63,7 +63,7 @@ export default function SubjectManagementPage() {
               {data.map((s) => (
                 <tr key={s.id}>
                   <td className="px-3 py-2 font-medium">{s.name}</td>
-                  <td className="px-3 py-2 tabular-nums">{s.topicCount ?? '—'}</td>
+                  <td className="px-3 py-2 tabular-nums">{s.topicCount ?? s.topics_count ?? '—'}</td>
                 </tr>
               ))}
             </Table>
