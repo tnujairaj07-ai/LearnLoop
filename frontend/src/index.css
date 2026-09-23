@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-surface-sunken text-ink font-sans text-[14px] leading-relaxed;
+  }
+  h1, h2, h3 {
+    @apply font-serif text-ink;
+  }
+  :focus-visible {
+    outline: 2px solid #2F6F62;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-surface border border-border rounded-md shadow-panel;
+  }
+  .panel-accent-teal {
+    @apply border-l-4 border-l-teal;
+  }
+  .panel-accent-amber {
+    @apply border-l-4 border-l-amber;
+  }
+  .panel-accent-clay {
+    @apply border-l-4 border-l-clay;
+  }
+  .input {
+    @apply w-full rounded border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-teal focus:ring-1 focus:ring-teal outline-none transition-colors;
+  }
+  .input-error {
+    @apply border-clay focus:border-clay focus:ring-clay;
+  }
+  .label {
+    @apply block text-sm font-medium text-ink-light mb-1;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply bg-teal text-white hover:bg-teal-700;
+  }
+  .btn-secondary {
+    @apply bg-surface border border-border text-ink hover:bg-surface-sunken;
+  }
+  .btn-danger {
+    @apply bg-clay text-white hover:bg-clay-700;
+  }
+  .btn-ghost {
+    @apply text-ink-light hover:bg-surface-sunken;
+  }
+}
