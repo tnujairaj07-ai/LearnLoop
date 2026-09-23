@@ -148,3 +148,4 @@ class Answer(db.Model):
 
     attempt = db.relationship("Attempt", back_populates="answers")
     question = db.relationship("Question")
+    detected_error_tag = db.relationship("ErrorTag")
