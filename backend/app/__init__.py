@@ -11,6 +11,7 @@ from app.routes.assessment_routes import assessment_bp
 from app.routes.auth_routes import auth_bp
 from app.routes.content_routes import content_bp
 from app.routes.health_routes import health_bp
+from app.routes.report_routes import report_bp
 from app.routes.student_routes import student_bp
 from app.routes.teacher_routes import teacher_bp
 from app.seed import register_seed_commands
@@ -49,6 +50,7 @@ def create_app(config_name=None):
     app.register_blueprint(assessment_bp)
     app.register_blueprint(student_bp)
     app.register_blueprint(teacher_bp)
+    app.register_blueprint(report_bp)
     register_seed_commands(app)
 
     register_error_handlers(app)

@@ -93,3 +93,24 @@ def complete_action(action_id):
         return error_response(str(e), status_code=404)
     except PermissionError as e:
         return error_response(str(e), status_code=403)
+
+
+@student_bp.route("/reports/<string:term_label>", methods=["GET"])
+@student_required
+def get_student_term_report(term_label):
+    """Retrieve personal Traditional & Analytics Report Card for a given term."""
+    student_id = int(get_jwt_identity())
+    subject_id = request.args.get("subject_id", type=int)
+    try:
+        from app.services.report_service import ReportService
+        report = ReportService.get_student_report(
+            actor_id=student_id,
+            actor_role="student",
+            student_id=student_id,
+            term_label=term_label,
+            subject_id=subject_id,
+        )
+        return success_response(data=report)
+    except Exception as e:
+        return error_response(str(e), status_code=500)
+

@@ -4,6 +4,18 @@ from werkzeug.exceptions import HTTPException
 from app.utils.responses import error_response
 
 
+class ForbiddenError(PermissionError):
+    pass
+
+
+class NotFoundError(LookupError):
+    pass
+
+
+class ValidationError(ValueError):
+    pass
+
+
 def register_error_handlers(app):
     @app.errorhandler(HTTPException)
     def handle_http_exception(error):

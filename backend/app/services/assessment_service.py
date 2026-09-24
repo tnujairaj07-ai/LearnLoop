@@ -357,6 +357,24 @@ class AssessmentService:
         ScoringService.score_attempt(attempt)
         db.session.commit()
 
+        # Audit event for submission
+        try:
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                action="assessment.submit",
+                entity_type="Attempt",
+                entity_id=attempt.id,
+                actor_id=student_id,
+                metadata_json={
+                    "assessment_id": attempt.assessment_id,
+                    "score": attempt.score,
+                    "percentage": attempt.percentage,
+                },
+                commit=True,
+            )
+        except Exception:
+            pass
+
         # Trigger explainable learning intelligence pipeline (fail-safe and observable)
         try:
             from app.services.mastery_service import MasteryService
@@ -372,6 +390,18 @@ class AssessmentService:
                 MasteryService.calculate_and_persist_mastery(student_id, t_id)
                 ErrorPatternService.detect_and_persist_flags(student_id, t_id)
                 RecommendationService.generate_recommendations(student_id, t_id)
+
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                action="intelligence.mastery_calculated",
+                entity_type="Attempt",
+                entity_id=attempt.id,
+                actor_id=student_id,
+                metadata_json={
+                    "topics_affected": list(topics_in_assessment),
+                },
+                commit=True,
+            )
         except Exception as e:
             from flask import current_app
             current_app.logger.error("Learning intelligence pipeline encountered an error: %s", e)

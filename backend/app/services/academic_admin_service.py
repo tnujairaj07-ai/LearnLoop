@@ -117,6 +117,22 @@ class AcademicAdminService:
         enrollment = Enrollment(class_id=class_id, student_id=student_id, status="active")
         db.session.add(enrollment)
         db.session.commit()
+
+        try:
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                action="academic.enrolment",
+                entity_type="Enrollment",
+                entity_id=enrollment.id,
+                metadata_json={
+                    "class_id": class_id,
+                    "student_id": student_id,
+                },
+                commit=True,
+            )
+        except Exception:
+            pass
+
         return {"id": enrollment.id, "class_id": class_id, "student_id": student_id, "status": "active"}
 
     @staticmethod

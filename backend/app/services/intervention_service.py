@@ -315,6 +315,23 @@ class InterventionService:
         inv.updated_at = now
         db.session.commit()
 
+        try:
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                action="intervention.assign",
+                entity_type="Intervention",
+                entity_id=inv.id,
+                actor_id=teacher_id,
+                metadata_json={
+                    "class_id": inv.class_id,
+                    "topic_id": inv.topic_id,
+                    "assigned_students_count": len(target_student_ids),
+                },
+                commit=True,
+            )
+        except Exception:
+            pass
+
         return InterventionService.get_intervention_details(teacher_id, inv.id)
 
     @staticmethod
@@ -419,6 +436,24 @@ class InterventionService:
         inv.updated_at = now
         db.session.commit()
 
+        try:
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                action="intervention.complete",
+                entity_type="Intervention",
+                entity_id=inv.id,
+                actor_id=teacher_id,
+                metadata_json={
+                    "class_id": inv.class_id,
+                    "topic_id": inv.topic_id,
+                    "reassessment_id": target_reassessment,
+                    "students_count": len(inv.students),
+                },
+                commit=True,
+            )
+        except Exception:
+            pass
+
         return InterventionService.get_intervention_details(teacher_id, inv.id)
 
     @staticmethod
@@ -519,6 +554,23 @@ class InterventionService:
             flag.resolved_at = now
 
         db.session.commit()
+
+        try:
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                action="teacher.error_pattern_review",
+                entity_type="ErrorPatternFlag",
+                entity_id=flag.id,
+                actor_id=teacher_id,
+                metadata_json={
+                    "decision": decision,
+                    "student_id": flag.student_id,
+                    "note": comments,
+                },
+                commit=True,
+            )
+        except Exception:
+            pass
 
         return {
             "flag_id": flag.id,

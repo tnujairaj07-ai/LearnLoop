@@ -80,3 +80,63 @@ def assign_teacher():
         return error_response(str(e), status_code=404)
     except ValueError as e:
         return error_response(str(e), status_code=400)
+
+
+@admin_bp.route("/audit-logs", methods=["GET"])
+@admin_required
+def list_audit_logs():
+    """Query immutable audit logs for governance and compliance inspection (admin only)."""
+    from app.services.audit_service import AuditService
+
+    actor_id = request.args.get("actor_id", type=int)
+    action = request.args.get("action")
+    entity_type = request.args.get("entity_type")
+    entity_id = request.args.get("entity_id")
+    limit = min(request.args.get("limit", default=50, type=int), 100)
+    offset = max(request.args.get("offset", default=0, type=int), 0)
+
+    logs, total = AuditService.list_audit_logs(
+        actor_id=actor_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        limit=limit,
+        offset=offset,
+    )
+    return success_response(
+        data={"audit_logs": logs, "total_count": total, "limit": limit, "offset": offset}
+    )
+
+
+@admin_bp.route("/users/<int:user_id>/privacy-purge", methods=["DELETE"])
+@admin_required
+def privacy_purge_user(user_id):
+    """Anonymize or purge student PII for privacy and data retention compliance (admin only)."""
+    from flask_jwt_extended import get_jwt_identity
+    from app.extensions import db
+    from app.models.user import User
+    from app.services.audit_service import AuditService
+
+    admin_id = int(get_jwt_identity())
+    user = User.query.get(user_id)
+    if not user:
+        return error_response(f"User with ID {user_id} not found.", status_code=404)
+
+    # Anonymize PII
+    user.name = f"Learner_{user.id}"
+    user.email = f"anonymized_{user.id}@learnloop.local"
+    user.is_active = False
+    db.session.commit()
+
+    AuditService.log_event(
+        action="privacy.purge",
+        entity_type="User",
+        entity_id=user.id,
+        actor_id=admin_id,
+        metadata_json={"purged_user_id": user.id},
+    )
+
+    return success_response(
+        message="User PII successfully purged and anonymized in compliance with retention policy."
+    )
+
