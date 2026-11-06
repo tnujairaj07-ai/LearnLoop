@@ -12,7 +12,9 @@
  * can build and demo the full frontend independently.
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const rawEnv = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/+$/, "");
+// If the configured URL ends with /api, strip it since all endpoints in this file start with /api/...
+const BASE_URL = rawEnv.endsWith("/api") ? rawEnv.slice(0, -4) : rawEnv;
 const USE_MOCKS = !BASE_URL;
 
 async function request(path, options = {}) {

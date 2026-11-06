@@ -10,7 +10,12 @@
 // in api/client.js is untouched.
 import { mockRequest } from './mockData'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+const rawEnv = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
+// Endpoints in this file start with /auth, /topics, etc. (without /api)
+// Ensure BASE_URL ends with /api when connecting to a remote backend host
+const BASE_URL = rawEnv
+  ? (rawEnv.endsWith('/api') ? rawEnv : `${rawEnv}/api`)
+  : '/api'
 const USE_MOCKS = !import.meta.env.VITE_API_BASE_URL
 
 export class ApiError extends Error {
@@ -43,12 +48,16 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
 
   let response
   try {
+    const token = localStorage.getItem('authToken')
+    const headers = {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
     response = await fetch(`${BASE_URL}${path}${query}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers,
       body: body ? JSON.stringify(body) : undefined,
       signal,
-      credentials: 'include',
     })
   } catch (networkError) {
     throw new ApiError('Could not reach the server. Check your connection and try again.', 0, networkError)

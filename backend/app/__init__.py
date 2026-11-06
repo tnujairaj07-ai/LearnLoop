@@ -37,9 +37,23 @@ def create_app(config_name=None):
     jwt.init_app(app)
     register_jwt_callbacks(jwt, is_token_revoked)
 
+    frontend_env = app.config.get("FRONTEND_URL", "*")
+    if frontend_env == "*" or not frontend_env:
+        cors_origins = "*"
+    else:
+        cors_origins = [url.strip() for url in frontend_env.split(",") if url.strip()]
+        if "http://localhost:5173" not in cors_origins:
+            cors_origins.append("http://localhost:5173")
+
     cors.init_app(
         app,
-        resources={r"/api/*": {"origins": [app.config["FRONTEND_URL"]]}},
+        resources={
+            r"/api/*": {
+                "origins": cors_origins,
+                "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+                "allow_headers": ["Content-Type", "Authorization"],
+            }
+        },
         supports_credentials=False,
     )
 
