@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-const COLORS = { Low: '#B3453B', Medium: '#C97A2B', High: '#2F6F62' }
+const COLORS = { Low: '#B3453B', Medium: '#C97A2B', High: '#2F5D8A' }
 
 export function DistributionBarChart({ data }) {
   return (
@@ -12,7 +12,7 @@ export function DistributionBarChart({ data }) {
         <Tooltip cursor={{ fill: '#F3F5F4' }} contentStyle={{ borderRadius: 6, borderColor: '#DCE2DF', fontSize: 13 }} />
         <Bar dataKey="students" radius={[3, 3, 0, 0]}>
           {data.map((entry) => (
-            <Cell key={entry.label} fill={COLORS[entry.label] || '#2F6F62'} />
+            <Cell key={entry.label} fill={COLORS[entry.label] || '#2F5D8A'} />
           ))}
         </Bar>
       </BarChart>

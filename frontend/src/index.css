@@ -2,19 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  html {
-    -webkit-font-smoothing: antialiased;
-  }
-  body {
-    @apply bg-surface-sunken text-ink font-sans text-[14px] leading-relaxed;
-  }
-  h1, h2, h3 {
-    @apply font-serif text-ink;
-  }
-  :focus-visible {
-    outline: 2px solid #2F6F62;
-    outline-offset: 2px;
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-paper text-ink font-body antialiased;
+}
+
+h1,
+h2,
+h3 {
+  @apply font-display;
+}
+
+/* Large-text accessibility mode, toggled by adding data-large-text="true" on <html> */
+html[data-large-text="true"] {
+  font-size: 19px;
+}
+
+/* High-contrast accessibility mode */
+html[data-high-contrast="true"] body {
+  background: #ffffff;
+  color: #000000;
+}
+html[data-high-contrast="true"] .hc-border {
+  border-color: #000000 !important;
+}
+html[data-high-contrast="true"] .hc-muted {
+  color: #1a1a1a !important;
+}
+
+/* Visible keyboard focus everywhere */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #2f5d8a;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
 

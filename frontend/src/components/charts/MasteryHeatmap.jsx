@@ -1,43 +1,58 @@
-// Colour-coded student x topic mastery grid. Kept as a real <table> (not a
-// canvas) so it stays readable and accessible with many rows/columns —
-// horizontal scroll takes over once the topic count grows.
+// Colour-coded student x topic mastery grid.
+// Displays transparent 4-part mastery bands matching AGENTS.md:
+// 0–39% Needs Support (Rose)
+// 40–59% Developing (Amber)
+// 60–79% Proficient (Blue)
+// 80–100% Secure (Emerald)
+
 function cellStyle(value) {
-  if (value == null) return { className: 'bg-surface-sunken text-ink-faint', label: '—' }
-  if (value < 40) return { className: 'bg-clay-100 text-clay-700', label: `${value}%` }
-  if (value < 70) return { className: 'bg-amber-100 text-amber-700', label: `${value}%` }
-  return { className: 'bg-teal-100 text-teal-700', label: `${value}%` }
+  if (value == null) return { className: 'bg-slate-50 text-slate-400', label: '—' }
+  if (value < 40) return { className: 'bg-rose-50 text-rose-800 border-rose-100 font-bold', label: `${value}%` }
+  if (value < 60) return { className: 'bg-amber-50 text-amber-900 border-amber-100 font-semibold', label: `${value}%` }
+  if (value < 80) return { className: 'bg-blue-50 text-blue-800 border-blue-100 font-semibold', label: `${value}%` }
+  return { className: 'bg-emerald-50 text-emerald-900 border-emerald-100 font-bold', label: `${value}%` }
 }
 
-export function MasteryHeatmap({ topics, rows, threshold = 60, onSelectStudent }) {
+export function MasteryHeatmap({ topics = [], rows = [], threshold = 60, onSelectStudent }) {
   return (
-    <div className="overflow-x-auto rounded border border-border">
-      <table className="w-full border-collapse text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xs">
+      <table className="w-full border-collapse text-xs sm:text-sm">
         <thead>
-          <tr className="bg-surface-sunken text-left text-ink-light">
-            <th className="sticky left-0 z-10 whitespace-nowrap bg-surface-sunken px-3 py-2 font-medium">
-              Student
+          <tr className="bg-slate-50/80 text-left text-slate-600 border-b border-slate-200">
+            <th className="sticky left-0 z-20 whitespace-nowrap bg-slate-50 px-4 py-3 font-bold text-slate-800 shadow-[2px_0px_5px_rgba(0,0,0,0.03)]">
+              Student ({rows.length})
             </th>
             {topics.map((topic) => (
-              <th key={topic.id} className="whitespace-nowrap px-3 py-2 text-center font-medium">
+              <th key={topic.id} className="whitespace-nowrap px-3 py-3 text-center font-bold text-slate-700 min-w-[120px]">
                 {topic.name}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border">
+        <tbody className="divide-y divide-slate-100">
           {rows.map((row) => (
-            <tr key={row.studentId}>
-              <td className="sticky left-0 z-10 whitespace-nowrap bg-surface px-3 py-2 font-medium">
+            <tr key={row.studentId} className="hover:bg-slate-50/60 transition-colors">
+              <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-4 py-2.5 font-medium shadow-[2px_0px_5px_rgba(0,0,0,0.03)]">
                 <button
                   type="button"
                   onClick={() => onSelectStudent?.(row.studentId)}
-                  className="text-teal-700 underline-offset-2 hover:underline"
+                  className="font-bold text-slate-900 hover:text-blue-600 hover:underline flex items-center gap-2 cursor-pointer text-left"
                 >
-                  {row.studentName}
+                  <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center shrink-0 border border-slate-200">
+                    {row.studentName
+                      .split(' ')
+                      .map((n) => n[0])
+                      .join('')
+                      .slice(0, 2)}
+                  </span>
+                  <span>{row.studentName}</span>
                 </button>
                 {row.belowThreshold && (
-                  <span className="ml-1 text-xs text-clay-600" title={`Below ${threshold}% mastery threshold`}>
-                    ●
+                  <span
+                    className="ml-8 mt-0.5 inline-block text-[10px] font-semibold text-rose-600"
+                    title={`Below ${threshold}% mastery threshold`}
+                  >
+                    ● Needs support
                   </span>
                 )}
               </td>
@@ -45,8 +60,10 @@ export function MasteryHeatmap({ topics, rows, threshold = 60, onSelectStudent }
                 const value = row.mastery[topic.id]
                 const { className, label } = cellStyle(value)
                 return (
-                  <td key={topic.id} className={`px-3 py-2 text-center tabular-nums ${className}`}>
-                    {label}
+                  <td key={topic.id} className="px-2.5 py-2 text-center">
+                    <span className={`inline-block w-full py-1.5 px-2 rounded-lg border text-xs tabular-nums ${className}`}>
+                      {label}
+                    </span>
                   </td>
                 )
               })}
@@ -54,13 +71,15 @@ export function MasteryHeatmap({ topics, rows, threshold = 60, onSelectStudent }
           ))}
         </tbody>
         <tfoot>
-          <tr className="border-t border-border bg-surface-sunken text-ink-light">
-            <td className="sticky left-0 z-10 whitespace-nowrap bg-surface-sunken px-3 py-2 font-medium">
-              Topic average
+          <tr className="border-t-2 border-slate-200 bg-slate-50 text-slate-800 font-bold">
+            <td className="sticky left-0 z-20 whitespace-nowrap bg-slate-50 px-4 py-3 font-extrabold text-slate-900 shadow-[2px_0px_5px_rgba(0,0,0,0.03)]">
+              Class Topic Average
             </td>
             {topics.map((topic) => (
-              <td key={topic.id} className="px-3 py-2 text-center font-medium tabular-nums">
-                {topic.average != null ? `${topic.average}%` : '—'}
+              <td key={topic.id} className="px-3 py-3 text-center tabular-nums">
+                <span className="font-extrabold text-slate-900 text-xs sm:text-sm">
+                  {topic.average != null ? `${topic.average}%` : '—'}
+                </span>
               </td>
             ))}
           </tr>

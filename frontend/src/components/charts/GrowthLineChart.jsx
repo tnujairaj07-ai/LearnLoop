@@ -8,7 +8,7 @@ export function GrowthLineChart({ data, dataKey = 'mastery' }) {
         <XAxis dataKey="label" tick={{ fill: '#3A4453', fontSize: 12 }} axisLine={{ stroke: '#DCE2DF' }} tickLine={false} />
         <YAxis domain={[0, 100]} tick={{ fill: '#3A4453', fontSize: 12 }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={{ borderRadius: 6, borderColor: '#DCE2DF', fontSize: 13 }} />
-        <Line type="monotone" dataKey={dataKey} stroke="#2F6F62" strokeWidth={2} dot={{ r: 3 }} />
+        <Line type="monotone" dataKey={dataKey} stroke="#2F5D8A" strokeWidth={2} dot={{ r: 3 }} />
       </LineChart>
     </ResponsiveContainer>
   )

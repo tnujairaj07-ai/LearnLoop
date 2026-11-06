@@ -2,8 +2,16 @@
 // Member 3 (backend) and Member 4 (learning intelligence) own the actual
 // endpoints — this file only standardises how the frontend talks to them.
 // Point VITE_API_BASE_URL at the real API host once it exists.
+//
+// Until then, USE_MOCKS is true and every call is routed to mockData.js
+// instead of the network, so the Teacher/Admin frontend can be explored
+// end-to-end with realistic fake data. This only affects this file (used
+// by the Teacher/Admin services) — the student frontend's own mock layer
+// in api/client.js is untouched.
+import { mockRequest } from './mockData'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+const USE_MOCKS = !import.meta.env.VITE_API_BASE_URL
 
 export class ApiError extends Error {
   constructor(message, status, details) {
@@ -14,37 +22,15 @@ export class ApiError extends Error {
   }
 }
 
-function getAuthToken() {
-  try {
-    const raw = window.sessionStorage.getItem('ci_session')
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      return parsed.token || parsed.access_token || parsed.data?.access_token || null
-    }
-  } catch {
-    /* ignore */
-  }
-  return null
-}
-
-function unwrapPayload(payload) {
-  if (!payload || typeof payload !== 'object') return payload
-  if (payload.success === true && payload.data !== undefined) {
-    const d = payload.data
-    if (d && typeof d === 'object' && !Array.isArray(d)) {
-      const keys = Object.keys(d)
-      if (keys.length === 1 && Array.isArray(d[keys[0]])) {
-        const arr = d[keys[0]]
-        arr[keys[0]] = arr
-        return arr
-      }
-    }
-    return d
-  }
-  return payload
-}
-
 async function request(path, { method = 'GET', body, params, signal } = {}) {
+  if (USE_MOCKS) {
+    try {
+      return await mockRequest(path, { method, body, params })
+    } catch (err) {
+      throw new ApiError(err.message || 'Request failed', err.status || 404, err)
+    }
+  }
+
   let query = ''
   if (params) {
     const usp = new URLSearchParams()
@@ -55,20 +41,11 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
     if (qs) query = `?${qs}`
   }
 
-  const headers = {}
-  if (body) {
-    headers['Content-Type'] = 'application/json'
-  }
-  const token = getAuthToken()
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
   let response
   try {
     response = await fetch(`${BASE_URL}${path}${query}`, {
       method,
-      headers: Object.keys(headers).length ? headers : undefined,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal,
       credentials: 'include',
@@ -89,6 +66,12 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
         throw new ApiError('The server returned a response that was not valid JSON.', response.status, text)
       }
     } else {
+      // No backend is wired up at BASE_URL yet: dev servers (and most static
+      // hosts) answer unknown paths like `/api/...` with their own index.html
+      // (200 OK, text/html) instead of a 404. Treating that HTML as data used
+      // to silently get passed on to pages expecting arrays/objects, which
+      // then crashed while rendering (e.g. `html.map is not a function`) and
+      // blanked the whole app. Surface it as a normal API error instead.
       throw new ApiError(
         response.ok
           ? 'No API server found at this address — got an HTML page instead of JSON. Set VITE_API_BASE_URL to your backend URL.'
@@ -100,11 +83,11 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
   }
 
   if (!response.ok) {
-    const message = (payload && (payload.message || (payload.errors?.[0]?.message))) || `Request failed (${response.status})`
+    const message = (payload && payload.message) || `Request failed (${response.status})`
     throw new ApiError(message, response.status, payload)
   }
 
-  return unwrapPayload(payload)
+  return payload
 }
 
 export const apiClient = {

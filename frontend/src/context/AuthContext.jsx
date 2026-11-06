@@ -1,55 +1,106 @@
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo } from "react";
+import * as studentApi from "../api/client";
 
-// This context only tracks *which UI* to show (teacher vs admin nav) and
-// carries whatever profile the real auth system returns. It performs no
-// authentication itself — Member 3's backend owns login/session/JWT logic.
-// Until that's wired up, `role` and `user` are seeded from a lightweight
-// local placeholder so the app is navigable during frontend development.
-const AuthContext = createContext(null)
+/**
+ * Single auth context for the whole LearnLoop app (student + teacher/admin).
+ *
+ * Two login flows feed into the same `user` state:
+ *  - Student: `signIn(email, password)` — talks to the student mock/API in
+ *    api/client.js and always resolves to a "student" role.
+ *  - Teacher/Admin: pages call `authService.login({ email, password, role })`
+ *    themselves (see services/authService.js), then hand the resolved
+ *    `{ role, user, token }` session to `setSession()`.
+ *
+ * Real auth/session logic still belongs to the backend — this context only
+ * tracks whichever session was handed to it and persists it so a refresh
+ * doesn't sign the user out.
+ */
+const AuthContext = createContext(null);
+
+const USER_KEY = "learnloop_user";
+const TOKEN_KEY = "authToken";
+
+function loadStoredUser() {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(() => {
-    try {
-      const raw = window.sessionStorage.getItem('ci_session')
-      return raw ? JSON.parse(raw) : null
-    } catch {
-      return null
+  const [user, setUser] = useState(loadStoredUser);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const persist = useCallback((nextUser, token) => {
+    if (nextUser) {
+      localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(TOKEN_KEY);
     }
-  })
+  }, []);
+
+  // Student-style sign-in: email + password, always a student session.
+  const signIn = useCallback(
+    async (email, password) => {
+      setLoading(true);
+      setError("");
+      try {
+        const { token, user: studentUser } = await studentApi.login(email, password);
+        const nextUser = { ...studentUser, role: studentUser.role || "student" };
+        persist(nextUser, token);
+        setUser(nextUser);
+        return nextUser;
+      } catch (err) {
+        setError(err.message || "Could not sign in. Check your details and try again.");
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [persist]
+  );
+
+  // Teacher/admin-style: a session object already resolved by authService.login().
+  const setSession = useCallback(
+    (session) => {
+      if (!session) return;
+      const nextUser = { ...session.user, role: session.role };
+      persist(nextUser, session.token);
+      setUser(nextUser);
+    },
+    [persist]
+  );
+
+  const signOut = useCallback(() => {
+    persist(null);
+    setUser(null);
+  }, [persist]);
 
   const value = useMemo(
     () => ({
-      session,
-      isAuthenticated: Boolean(session),
-      role: session?.role ?? null,
-      user: session?.user ?? null,
-      // Called once the real backend confirms a login. Frontend never
-      // decides identity or permissions on its own.
-      setSession: (next) => {
-        setSession(next)
-        try {
-          window.sessionStorage.setItem('ci_session', JSON.stringify(next))
-        } catch {
-          /* ignore storage failures */
-        }
-      },
-      clearSession: () => {
-        setSession(null)
-        try {
-          window.sessionStorage.removeItem('ci_session')
-        } catch {
-          /* ignore storage failures */
-        }
-      },
+      user,
+      role: user?.role ?? null,
+      isAuthenticated: Boolean(user),
+      error,
+      loading,
+      signIn,
+      signOut,
+      setSession,
+      clearSession: signOut,
     }),
-    [session]
-  )
+    [user, error, loading, signIn, signOut, setSession]
+  );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
-  return ctx
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
 }

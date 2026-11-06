@@ -1,14 +1,19 @@
-# Classroom Insight — Teacher & Admin Frontend
+# LearnLoop
 
-Member 2's scope only: teacher and admin-facing UI for the classroom analytics
-platform. No backend, database, or authentication logic is implemented here —
-this is a frontend that is ready to be wired up to the APIs Member 3 (backend)
-and Member 4 (learning intelligence) provide.
+A single, unified frontend for an adaptive e-learning platform — combining the
+**student experience** with a **teacher & admin console** — built with React,
+Vite, Tailwind CSS and React Router.
 
-## Stack
+## What's inside
 
-React 18 + React Router + Tailwind CSS + Framer Motion (modal transitions) +
-Recharts (distribution/growth charts).
+- **Student app** — dashboard, subject roadmaps, topic detail, adaptive
+  quizzes, progress analysis and report cards.
+- **Teacher workspace** — class analytics, mastery heatmaps, intervention
+  queue, topic/resource/question management and report generation.
+- **Admin console** — class, subject, teacher and student management, plus
+  teacher assignment and student enrollment.
+
+All three share one login screen, one design system and one routing tree.
 
 ## Getting started
 
@@ -17,58 +22,61 @@ npm install
 npm run dev
 ```
 
-The app boots to `/login`. Signing in calls `authService.login`, which is a
-placeholder POST to `/api/auth/login` — point `VITE_API_BASE_URL` (see below)
-at the real backend once it exists. Every list/detail page also expects real
-API responses; until they're available you'll see the app's built-in
-loading/empty/error states rather than fake data.
+Then open the printed local URL. Sign in with the role tabs on the login
+screen — each has a one-click demo account, since no backend is wired up yet:
 
-## Configuration
+| Role    | Email             | Password  |
+| ------- | ----------------- | --------- |
+| Student | any email works   | any value |
+| Teacher | teacher@demo.com  | demo1234  |
+| Admin   | admin@demo.com    | demo1234  |
 
-Set `VITE_API_BASE_URL` in a `.env` file to point at the backend, e.g.:
+## Building for production
 
+```bash
+npm run build
+npm run preview
 ```
-VITE_API_BASE_URL=https://api.example.com
-```
 
-Defaults to `/api` (same-origin) if unset.
+## Connecting a real backend
 
-## Structure
+Every network call goes through one of two thin API layers:
+
+- `src/api/client.js` — student endpoints.
+- `src/lib/apiClient.js` + `src/services/*.js` — teacher/admin endpoints.
+
+Both fall back to realistic mock data until `VITE_API_BASE_URL` is set (in a
+`.env` file), so the whole app is explorable end-to-end without a backend.
+Point that variable at your API host once it exists — no other frontend code
+needs to change.
+
+## Project structure
 
 ```
 src/
-  lib/apiClient.js        fetch wrapper (error handling, query params)
-  services/                one module per resource; the only place that calls the API
-  hooks/useApi.js          shared loading/error/empty state handling
-  context/AuthContext.jsx  holds session/role for nav + routing (not auth logic)
+  api/            student API client (mock-first)
+  lib/            shared fetch wrapper for teacher/admin services
+  services/       one module per teacher/admin resource (classes, students, …)
+  hooks/          shared data-fetching hook (useApi)
+  context/        AuthContext — single session for all three roles
   components/
-    layout/                Sidebar, Topbar, AppShell, ProtectedRoute
-    ui/                     Panel, Table, Modal, FormField, StatusPill, states
-    charts/                 MasteryHeatmap, DistributionBarChart, GrowthLineChart
+    *.jsx         student UI (Sidebar, PageShell, MasteryBar, …)
+    layout/       teacher/admin shell (AppShell, Sidebar, Topbar)
+    ui/           teacher/admin building blocks (Modal, Table, Panel, …)
+    charts/       recharts wrappers (growth line, distribution bar, heatmap)
   pages/
-    teacher/                dashboard, class + topic analytics, interventions,
-                             student detail, content/question management, reports
-    admin/                  classes, subjects, teachers, students, assignments, enrollment
+    Login.jsx           unified login for all roles
+    NotFoundPage.jsx
+    Dashboard.jsx, Roadmap.jsx, TopicDetail.jsx, Quiz.jsx,
+    Analysis.jsx, ReportCard.jsx        student pages
+    teacher/                             teacher pages
+    admin/                                admin pages
 ```
 
-## Routes
+## Design system
 
-**Teacher:** `/teacher`, `/teacher/classes/:classId`,
-`/teacher/classes/:classId/topics/:topicId`, `/teacher/interventions`,
-`/teacher/interventions/:interventionId`, `/teacher/students/:studentId`,
-`/teacher/topics`, `/teacher/resources`, `/teacher/questions`, `/teacher/reports`
-
-**Admin:** `/admin/classes`, `/admin/subjects`, `/admin/teachers`,
-`/admin/students`, `/admin/assignments`, `/admin/enrollment`
-
-## Notes
-
-- `AuthContext` only stores whatever the real login endpoint returns (role,
-  user) so navigation and route protection work. It does not verify
-  credentials, issue tokens, or replace the real auth system.
-- All endpoints in `services/` are best-guess REST paths matching the API
-  contract described in the team's shared PDF (e.g.
-  `/api/teacher/classes/:id/interventions`). Update them once the real
-  contract is finalized — that's the only place that needs to change.
-- Out of scope by design: student-facing pages, backend/database/auth logic,
-  PDF generation, notifications, chat, gamification.
+The student frontend's palette and type scale (Inter + Lexend, the blue
+`primary` accent, `rounded-card` corners) is the single source of truth —
+see `tailwind.config.js`. The teacher/admin UI keeps its own component
+library (panels, tables, modals, status pills) but every color token it uses
+now resolves onto that same palette, so both halves read as one product.

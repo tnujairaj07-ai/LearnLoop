@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component {
     if (this.state.error) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-surface-sunken px-6 text-center">
-          <p className="font-serif text-xl font-semibold text-ink">Something went wrong</p>
+          <p className="font-display text-xl font-semibold text-ink">Something went wrong</p>
           <p className="max-w-sm text-sm text-ink-faint">
             {this.state.error.message || 'The page hit an unexpected error and could not continue.'}
           </p>
