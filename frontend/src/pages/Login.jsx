@@ -116,7 +116,7 @@ export default function Login({ initialMode }) {
         setSession(result);
         resolvedRole = result.role;
       }
-      navigate(location.state?.from?.pathname || destinationFor(resolvedRole), { replace: true });
+      navigate(destinationFor(resolvedRole), { replace: true });
     } catch (err) {
       setLocalError(err.message || "Demo login failed.");
     } finally {
@@ -142,7 +142,7 @@ export default function Login({ initialMode }) {
           setSession(result);
           resolvedRole = result.role;
         }
-        navigate(location.state?.from?.pathname || destinationFor(resolvedRole), { replace: true });
+        navigate(destinationFor(resolvedRole), { replace: true });
       } else {
         // Sign up
         if (!name.trim()) throw new Error("Please enter your full name.");

@@ -1,5 +1,4 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
 
@@ -37,14 +36,6 @@ import TeacherManagementPage from "./pages/admin/TeacherManagementPage";
 import StudentManagementPage from "./pages/admin/StudentManagementPage";
 import TeacherAssignmentPage from "./pages/admin/TeacherAssignmentPage";
 import StudentEnrollmentPage from "./pages/admin/StudentEnrollmentPage";
-
-function RootRedirect() {
-  const { isAuthenticated, role } = useAuth();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (role === "admin") return <Navigate to="/admin/classes" replace />;
-  if (role === "teacher") return <Navigate to="/teacher" replace />;
-  return <Navigate to="/dashboard" replace />;
-}
 
 export default function App() {
   return (
@@ -159,7 +150,7 @@ export default function App() {
         <Route path="/admin/enrollment" element={<StudentEnrollmentPage />} />
       </Route>
 
-      <Route path="/" element={<RootRedirect />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
