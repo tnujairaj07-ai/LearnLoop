@@ -59,6 +59,26 @@ export async function login(email, password) {
   });
 }
 
+export async function register({ name, email, password, role = "student", grade = "Grade 9" }) {
+  if (USE_MOCKS) {
+    if (!email || !password || !name) throw new Error("Name, email, and password are required.");
+    return delay({
+      token: "mock-token-" + Date.now(),
+      user: {
+        id: "stu_" + Math.floor(Math.random() * 1000 + 100),
+        name,
+        email,
+        role: "student",
+        grade,
+      },
+    });
+  }
+  return request("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ name, email, password, role, grade }),
+  });
+}
+
 /* -------------------------- Dashboard -------------------------- */
 
 export async function getStudentDashboard(studentId) {

@@ -17,6 +17,9 @@ import ReportCard from "./pages/student/ReportCard";
 
 // Teacher
 import TeacherDashboardPage from "./pages/teacher/TeacherDashboardPage";
+import RealTimeActivityPage from "./pages/teacher/RealTimeActivityPage";
+import TeacherClassesPage from "./pages/teacher/TeacherClassesPage";
+import MyClassPage from "./pages/teacher/MyClassPage";
 import ClassAnalyticsPage from "./pages/teacher/ClassAnalyticsPage";
 import TopicAnalyticsPage from "./pages/teacher/TopicAnalyticsPage";
 import InterventionQueuePage from "./pages/teacher/InterventionQueuePage";
@@ -47,6 +50,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Login initialMode="signup" />} />
 
       {/* ---------------- Student ---------------- */}
       <Route
@@ -132,6 +136,10 @@ export default function App() {
       >
         {/* Teacher */}
         <Route path="/teacher" element={<TeacherDashboardPage />} />
+        <Route path="/teacher/activity" element={<RealTimeActivityPage />} />
+        <Route path="/teacher/my-class" element={<MyClassPage />} />
+        <Route path="/teacher/classes" element={<TeacherClassesPage />} />
+        <Route path="/teacher/classes/my-class" element={<MyClassPage />} />
         <Route path="/teacher/classes/:classId" element={<ClassAnalyticsPage />} />
         <Route path="/teacher/classes/:classId/topics/:topicId" element={<TopicAnalyticsPage />} />
         <Route path="/teacher/interventions" element={<InterventionQueuePage />} />

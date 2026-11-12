@@ -38,6 +38,18 @@ export const authService = {
     }
     return apiClient.post('/auth/login', credentials)
   },
+  register: async (credentials) => {
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    return {
+      role: credentials.role || 'teacher',
+      user: {
+        id: 'new-' + (credentials.role || 'user') + '-' + Date.now(),
+        name: credentials.name || 'New Educator',
+        email: credentials.email,
+      },
+      token: 'demo-token-' + Date.now(),
+    }
+  },
   logout: () => apiClient.post('/auth/logout'),
   currentUser: () => apiClient.get('/auth/me'),
 }

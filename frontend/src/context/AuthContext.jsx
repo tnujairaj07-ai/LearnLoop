@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo } from "react";
 import * as studentApi from "../api/client";
+import { authService } from "../services/authService";
 
 /**
  * Single auth context for the whole LearnLoop app (student + teacher/admin).
@@ -65,6 +66,34 @@ export function AuthProvider({ children }) {
     [persist]
   );
 
+  const signUp = useCallback(
+    async ({ name, email, password, role = "student", grade = "Grade 9" }) => {
+      setLoading(true);
+      setError("");
+      try {
+        if (role === "student") {
+          const { token, user: studentUser } = await studentApi.register({ name, email, password, role, grade });
+          const nextUser = { ...studentUser, role: "student" };
+          persist(nextUser, token);
+          setUser(nextUser);
+          return nextUser;
+        } else {
+          const result = await authService.register({ name, email, password, role });
+          const nextUser = { ...result.user, role: result.role };
+          persist(nextUser, result.token);
+          setUser(nextUser);
+          return nextUser;
+        }
+      } catch (err) {
+        setError(err.message || "Could not create account. Please check your details.");
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [persist]
+  );
+
   // Teacher/admin-style: a session object already resolved by authService.login().
   const setSession = useCallback(
     (session) => {
@@ -89,11 +118,12 @@ export function AuthProvider({ children }) {
       error,
       loading,
       signIn,
+      signUp,
       signOut,
       setSession,
       clearSession: signOut,
     }),
-    [user, error, loading, signIn, signOut, setSession]
+    [user, error, loading, signIn, signUp, signOut, setSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
