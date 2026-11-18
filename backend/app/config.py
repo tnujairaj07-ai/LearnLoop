@@ -9,9 +9,13 @@ from sqlalchemy.pool import StaticPool
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR / ".env"
 
-load_dotenv(dotenv_path=ENV_FILE, override=True)
+load_dotenv(dotenv_path=ENV_FILE, override=False)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+RAW_DATABASE_URL = os.getenv("DATABASE_URL")
+if RAW_DATABASE_URL and RAW_DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = RAW_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+else:
+    DATABASE_URL = RAW_DATABASE_URL
 
 
 class Config:

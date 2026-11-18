@@ -7,4 +7,5 @@ python-dotenv
 psycopg2-binary
 pymysql
 cryptography
+gunicorn
 pytest

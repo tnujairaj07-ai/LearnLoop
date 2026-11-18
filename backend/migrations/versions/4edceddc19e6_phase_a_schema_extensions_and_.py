@@ -261,7 +261,7 @@ def upgrade():
         batch_op.add_column(sa.Column('difficulty_label', sa.String(length=20), server_default='medium', nullable=False))
         batch_op.add_column(sa.Column('due_date', sa.DateTime(), nullable=True))
         batch_op.add_column(sa.Column('term_label', sa.String(length=50), nullable=True))
-        batch_op.add_column(sa.Column('allow_retakes', sa.Boolean(), server_default=sa.text('0'), nullable=False))
+        batch_op.add_column(sa.Column('allow_retakes', sa.Boolean(), server_default=sa.false(), nullable=False))
         batch_op.create_check_constraint(
             'ck_assessments_category',
             "category IN ('diagnostic', 'assignment', 'practice_quiz', 'mock_test', 'reassessment')",
@@ -271,10 +271,14 @@ def upgrade():
             "difficulty_label IN ('easy', 'medium', 'hard')",
         )
 
+    dialect = op.get_bind().dialect.name
     with op.batch_alter_table('attempts', schema=None) as batch_op:
         batch_op.add_column(sa.Column('attempt_number', sa.Integer(), server_default='1', nullable=False))
         batch_op.create_unique_constraint('uq_attempts_assessment_student_num', ['assessment_id', 'student_id', 'attempt_number'])
-        batch_op.drop_index(batch_op.f('uq_attempts_assessment_student'))
+        if dialect in ('mysql', 'mariadb'):
+            batch_op.drop_index(batch_op.f('uq_attempts_assessment_student'))
+        else:
+            batch_op.drop_constraint('uq_attempts_assessment_student', type_='unique')
         batch_op.create_check_constraint('ck_attempts_number', 'attempt_number >= 1')
 
     with op.batch_alter_table('classes', schema=None) as batch_op:
@@ -307,7 +311,7 @@ def upgrade():
     with op.batch_alter_table('topics', schema=None) as batch_op:
         batch_op.add_column(sa.Column('unit_name', sa.String(length=120), nullable=True))
         batch_op.add_column(sa.Column('common_mistake_tip', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('is_pilot', sa.Boolean(), server_default=sa.text('1'), nullable=False))
+        batch_op.add_column(sa.Column('is_pilot', sa.Boolean(), server_default=sa.true(), nullable=False))
 
     # ### end Alembic commands ###
 
@@ -337,9 +341,13 @@ def downgrade():
         batch_op.drop_index(batch_op.f('ix_classes_homeroom_teacher_id'))
         batch_op.drop_column('homeroom_teacher_id')
 
+    dialect = op.get_bind().dialect.name
     with op.batch_alter_table('attempts', schema=None) as batch_op:
         batch_op.drop_constraint('ck_attempts_number', type_='check')
-        batch_op.create_index(batch_op.f('uq_attempts_assessment_student'), ['assessment_id', 'student_id'], unique=True)
+        if dialect in ('mysql', 'mariadb'):
+            batch_op.create_index(batch_op.f('uq_attempts_assessment_student'), ['assessment_id', 'student_id'], unique=True)
+        else:
+            batch_op.create_unique_constraint('uq_attempts_assessment_student', ['assessment_id', 'student_id'])
         batch_op.drop_constraint('uq_attempts_assessment_student_num', type_='unique')
         batch_op.drop_column('attempt_number')
 

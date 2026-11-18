@@ -1827,8 +1827,17 @@ def seed_rich_demo_accounts(password="demo1234"):
     default="demo1234",
     help="Password for the real demo accounts (admin@demo.com, teacher@demo.com, student@demo.com).",
 )
-def seed_rich_demo_command(password):
+@click.option(
+    "--skip-if-seeded",
+    is_flag=True,
+    default=False,
+    help="Exit immediately without scanning tables if student@demo.com already exists.",
+)
+def seed_rich_demo_command(password, skip_if_seeded):
     """Populate real database records for demo accounts while keeping new registrations clean."""
+    if skip_if_seeded and User.query.filter_by(email="student@demo.com").first():
+        click.echo("Rich demo data already present; skipping seed.")
+        return
     summary = seed_rich_demo_accounts(password=password)
     click.echo(
         "Rich demo data ready in DB: "
