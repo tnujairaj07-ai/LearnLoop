@@ -83,6 +83,64 @@ def me():
         )
 
 
+@auth_bp.route("/register", methods=["POST"])
+def register():
+    """Register a new student or teacher account starting from zero progress."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response(
+            message="Request body must be a valid JSON object.",
+            errors=[{"code": "VALIDATION_ERROR", "field": "body", "message": "Expected JSON object"}],
+            status_code=400,
+        )
+
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+    role = data.get("role", "student")
+    grade = data.get("grade", "Class 9")
+    class_id = data.get("class_id")
+
+    try:
+        reg_data = AuthService.register(
+            name=name,
+            email=email,
+            password=password,
+            role=role,
+            grade=grade,
+            class_id=class_id,
+        )
+        return success_response(
+            data=reg_data,
+            message="Account created successfully.",
+            status_code=201,
+        )
+    except PermissionError as e:
+        return error_response(
+            message=str(e),
+            errors=[{"code": "FORBIDDEN", "message": str(e)}],
+            status_code=403,
+        )
+    except FileExistsError as e:
+        return error_response(
+            message=str(e),
+            errors=[{"code": "DUPLICATE_EMAIL", "field": "email", "message": str(e)}],
+            status_code=409,
+        )
+    except LookupError as e:
+        return error_response(
+            message=str(e),
+            errors=[{"code": "NOT_FOUND", "message": str(e)}],
+            status_code=404,
+        )
+    except ValueError as e:
+        return error_response(
+            message=str(e),
+            errors=[{"code": "VALIDATION_ERROR", "message": str(e)}],
+            status_code=400,
+        )
+
+
 @auth_bp.route("/logout", methods=["POST"])
 @jwt_required()
 def logout():

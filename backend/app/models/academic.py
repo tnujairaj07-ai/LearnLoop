@@ -5,11 +5,26 @@ from app.extensions import db
 
 class Subject(db.Model):
     __tablename__ = "subjects"
+    __table_args__ = (
+        db.CheckConstraint(
+            "category IN ('core', 'skill', 'enrichment', 'elective', 'practical')",
+            name="ck_subjects_category",
+        ),
+        db.CheckConstraint(
+            "status IN ('active', 'coming_soon', 'archived')",
+            name="ck_subjects_status",
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     code = db.Column(db.String(20), unique=True, nullable=False)
     description = db.Column(db.Text)
+    category = db.Column(db.String(30), default="core", nullable=False)
+    curriculum_label = db.Column(db.String(100))
+    status = db.Column(db.String(20), default="active", nullable=False)
+    badge_label = db.Column(db.String(50))
+    icon = db.Column(db.String(20))
     data_source = db.Column(db.String(32), default="manual", nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
@@ -49,6 +64,9 @@ class Topic(db.Model):
     )
     title = db.Column(db.String(150), nullable=False)
     description = db.Column(db.Text)
+    unit_name = db.Column(db.String(120))
+    common_mistake_tip = db.Column(db.Text)
+    is_pilot = db.Column(db.Boolean, default=True, nullable=False)
     order_index = db.Column(db.Integer, nullable=False)
     mastery_threshold = db.Column(db.Float, default=80.0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -84,6 +102,10 @@ class Skill(db.Model):
     __tablename__ = "skills"
     __table_args__ = (
         db.UniqueConstraint("topic_id", "name", name="uq_skills_topic_name"),
+        db.CheckConstraint(
+            "cognitive_domain IN ('conceptual', 'fluency', 'problem_solving', 'reasoning', 'accuracy')",
+            name="ck_skills_cognitive_domain",
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -92,6 +114,7 @@ class Skill(db.Model):
     )
     name = db.Column(db.String(150), nullable=False)
     description = db.Column(db.Text)
+    cognitive_domain = db.Column(db.String(30), default="conceptual", nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     topic = db.relationship("Topic", back_populates="skills")
@@ -139,3 +162,41 @@ class Resource(db.Model):
     )
 
     topic = db.relationship("Topic", back_populates="resources")
+
+
+class SubjectBookmark(db.Model):
+    """Stores student-bookmarked subjects on the learning roadmap."""
+
+    __tablename__ = "subject_bookmarks"
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "subject_id", name="uq_subject_bookmarks_user_subject"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    subject_id = db.Column(
+        db.Integer, db.ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ResourceView(db.Model):
+    """Tracks when a student opens or marks a learning resource as reviewed."""
+
+    __tablename__ = "resource_views"
+    __table_args__ = (
+        db.UniqueConstraint("student_id", "resource_id", name="uq_resource_views_student_resource"),
+        db.CheckConstraint("duration_seconds >= 0", name="ck_resource_views_duration"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    resource_id = db.Column(
+        db.Integer, db.ForeignKey("resources.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    duration_seconds = db.Column(db.Integer, default=0, nullable=False)
+    reviewed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

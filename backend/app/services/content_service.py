@@ -93,7 +93,7 @@ class ContentService:
     # ---------------------------------------------------------
     @staticmethod
     def get_subjects():
-        """Retrieve all subjects with topic counts."""
+        """Retrieve all subjects with topic counts and metadata."""
         subjects = Subject.query.order_by(Subject.name.asc()).all()
         return [
             {
@@ -101,6 +101,11 @@ class ContentService:
                 "name": s.name,
                 "code": s.code,
                 "description": s.description,
+                "category": s.category,
+                "curriculum_label": s.curriculum_label,
+                "status": s.status,
+                "badge_label": s.badge_label,
+                "icon": s.icon,
                 "data_source": s.data_source,
                 "topics_count": len(s.topics),
             }
@@ -120,15 +125,25 @@ class ContentService:
             "name": subject.name,
             "code": subject.code,
             "description": subject.description,
+            "category": subject.category,
+            "curriculum_label": subject.curriculum_label,
+            "status": subject.status,
+            "badge_label": subject.badge_label,
+            "icon": subject.icon,
             "data_source": subject.data_source,
             "topics": [
                 {
                     "id": t.id,
                     "title": t.title,
                     "description": t.description,
+                    "unit_name": t.unit_name,
+                    "common_mistake_tip": t.common_mistake_tip,
+                    "is_pilot": t.is_pilot,
                     "order_index": t.order_index,
                     "mastery_threshold": t.mastery_threshold,
                     "skills_count": len(t.skills),
+                    "questions_count": len(t.questions),
+                    "resources_count": len(t.resources),
                 }
                 for t in ordered_topics
             ],
@@ -139,20 +154,104 @@ class ContentService:
         name = data.get("name", "").strip()
         code = data.get("code", "").strip().upper()
         description = data.get("description", "").strip()
+        category = (data.get("category") or "core").strip().lower()
+        curriculum_label = (data.get("curriculum_label") or "").strip() or None
+        status = (data.get("status") or "active").strip().lower()
+        badge_label = (data.get("badge_label") or "").strip() or None
+        icon = (data.get("icon") or "").strip() or None
 
         if not name:
             raise ContentValidationError("Subject name is required.", field="name")
         if not code:
             raise ContentValidationError("Subject code is required.", field="code")
+        if category not in ("core", "skill", "enrichment", "elective", "practical"):
+            raise ContentValidationError("Invalid subject category.", field="category")
+        if status not in ("active", "coming_soon", "archived"):
+            raise ContentValidationError("Invalid subject status.", field="status")
 
         existing = Subject.query.filter_by(code=code).first()
         if existing:
             raise ContentValidationError(f"Subject code '{code}' already exists.", field="code")
 
-        subject = Subject(name=name, code=code, description=description)
+        subject = Subject(
+            name=name,
+            code=code,
+            description=description,
+            category=category,
+            curriculum_label=curriculum_label,
+            status=status,
+            badge_label=badge_label,
+            icon=icon,
+        )
         db.session.add(subject)
         db.session.commit()
         return ContentService.get_subject_by_id(subject.id)
+
+    @staticmethod
+    def update_subject(subject_id, data):
+        subject = db.session.get(Subject, subject_id)
+        if not subject:
+            raise LookupError(f"Subject with ID {subject_id} not found.")
+
+        if "name" in data:
+            name = (data.get("name") or "").strip()
+            if not name:
+                raise ContentValidationError("Subject name cannot be blank.", field="name")
+            subject.name = name
+        if "code" in data:
+            code = (data.get("code") or "").strip().upper()
+            if not code:
+                raise ContentValidationError("Subject code cannot be blank.", field="code")
+            conflict = Subject.query.filter(Subject.code == code, Subject.id != subject_id).first()
+            if conflict:
+                raise ContentValidationError(f"Subject code '{code}' already exists.", field="code")
+            subject.code = code
+        if "description" in data:
+            subject.description = (data.get("description") or "").strip()
+        if "category" in data:
+            category = (data.get("category") or "").strip().lower()
+            if category not in ("core", "skill", "enrichment", "elective", "practical"):
+                raise ContentValidationError("Invalid subject category.", field="category")
+            subject.category = category
+        if "curriculum_label" in data:
+            subject.curriculum_label = (data.get("curriculum_label") or "").strip() or None
+        if "status" in data:
+            status = (data.get("status") or "").strip().lower()
+            if status not in ("active", "coming_soon", "archived"):
+                raise ContentValidationError("Invalid subject status.", field="status")
+            subject.status = status
+        if "badge_label" in data:
+            subject.badge_label = (data.get("badge_label") or "").strip() or None
+        if "icon" in data:
+            subject.icon = (data.get("icon") or "").strip() or None
+
+        subject.updated_at = datetime.utcnow()
+        db.session.commit()
+        return ContentService.get_subject_by_id(subject.id)
+
+    @staticmethod
+    def list_topics(subject_id=None):
+        query = Topic.query
+        if subject_id is not None:
+            query = query.filter_by(subject_id=subject_id)
+        topics = query.order_by(Topic.subject_id.asc(), Topic.order_index.asc()).all()
+        return [
+            {
+                "id": t.id,
+                "subject_id": t.subject_id,
+                "title": t.title,
+                "description": t.description,
+                "unit_name": t.unit_name,
+                "common_mistake_tip": t.common_mistake_tip,
+                "is_pilot": t.is_pilot,
+                "order_index": t.order_index,
+                "mastery_threshold": t.mastery_threshold,
+                "questions_count": len(t.questions),
+                "resources_count": len(t.resources),
+                "skills_count": len(t.skills),
+            }
+            for t in topics
+        ]
 
     @staticmethod
     def get_topic_details(topic_id):
@@ -215,12 +314,82 @@ class ContentService:
             subject_id=subject_id,
             title=title,
             description=description,
+            unit_name=(data.get("unit_name") or "").strip() or None,
+            common_mistake_tip=(data.get("common_mistake_tip") or "").strip() or None,
+            is_pilot=bool(data.get("is_pilot", True)),
             order_index=order_index,
             mastery_threshold=float(mastery_threshold),
         )
         db.session.add(topic)
         db.session.commit()
         return ContentService.get_topic_details(topic.id)
+
+    @staticmethod
+    def update_topic(topic_id, data):
+        topic = db.session.get(Topic, topic_id)
+        if not topic:
+            raise LookupError(f"Topic with ID {topic_id} not found.")
+
+        if "title" in data:
+            title = (data.get("title") or "").strip()
+            if not title:
+                raise ContentValidationError("Topic title cannot be blank.", field="title")
+            conflict = Topic.query.filter(
+                Topic.subject_id == topic.subject_id, Topic.title == title, Topic.id != topic_id
+            ).first()
+            if conflict:
+                raise ContentValidationError(f"Topic '{title}' already exists for this subject.", field="title")
+            topic.title = title
+
+        if "description" in data:
+            topic.description = (data.get("description") or "").strip()
+        if "unit_name" in data:
+            topic.unit_name = (data.get("unit_name") or "").strip() or None
+        if "common_mistake_tip" in data:
+            topic.common_mistake_tip = (data.get("common_mistake_tip") or "").strip() or None
+        if "is_pilot" in data:
+            topic.is_pilot = bool(data.get("is_pilot"))
+        if "order_index" in data:
+            order_val = data.get("order_index")
+            if not isinstance(order_val, int) or order_val < 0:
+                raise ContentValidationError("order_index must be a non-negative integer.", field="order_index")
+            conflict = Topic.query.filter(
+                Topic.subject_id == topic.subject_id,
+                Topic.order_index == order_val,
+                Topic.id != topic_id,
+            ).first()
+            if conflict:
+                raise ContentValidationError(
+                    f"Order index {order_val} is already taken in this subject.", field="order_index"
+                )
+            topic.order_index = order_val
+        if "mastery_threshold" in data:
+            mt = data.get("mastery_threshold")
+            if not isinstance(mt, (int, float)) or not (0 <= mt <= 100):
+                raise ContentValidationError("mastery_threshold must be between 0 and 100.", field="mastery_threshold")
+            topic.mastery_threshold = float(mt)
+
+        topic.updated_at = datetime.utcnow()
+        db.session.commit()
+        return ContentService.get_topic_details(topic.id)
+
+    @staticmethod
+    def delete_topic(topic_id):
+        topic = db.session.get(Topic, topic_id)
+        if not topic:
+            raise LookupError(f"Topic with ID {topic_id} not found.")
+        if topic.questions:
+            raise ContentValidationError(
+                "Cannot delete topic that already has questions attached.", field="topic_id"
+            )
+        from app.models.mastery import MasteryRecord
+        if MasteryRecord.query.filter_by(topic_id=topic_id).first():
+            raise ContentValidationError(
+                "Cannot delete topic with existing student mastery records.", field="topic_id"
+            )
+        db.session.delete(topic)
+        db.session.commit()
+        return {"deleted": True, "id": topic_id}
 
     @staticmethod
     def create_skill(data):
@@ -299,6 +468,53 @@ class ContentService:
         db.session.add(resource)
         db.session.commit()
         return ContentService.serialize_resource(resource)
+
+    @staticmethod
+    def update_resource(resource_id, data):
+        resource = db.session.get(Resource, resource_id)
+        if not resource:
+            raise LookupError(f"Resource with ID {resource_id} not found.")
+
+        if "title" in data:
+            title = (data.get("title") or "").strip()
+            if not title:
+                raise ContentValidationError("Resource title cannot be blank.", field="title")
+            resource.title = title
+        if "resource_type" in data:
+            rtype = (data.get("resource_type") or "").strip()
+            if not rtype:
+                raise ContentValidationError("Resource type cannot be blank.", field="resource_type")
+            resource.resource_type = rtype
+        if "url_or_path" in data:
+            url_val = (data.get("url_or_path") or "").strip()
+            parsed = urlparse(url_val)
+            if not url_val or not (parsed.scheme in ("http", "https") or url_val.startswith("/")):
+                raise ContentValidationError(
+                    "url_or_path must be a valid HTTP(S) URL or internal path.", field="url_or_path"
+                )
+            resource.url_or_path = url_val
+        if "description" in data:
+            resource.description = (data.get("description") or "").strip()
+        if "difficulty" in data:
+            diff = data.get("difficulty")
+            if not isinstance(diff, int) or diff not in (1, 2, 3):
+                raise ContentValidationError("Difficulty must be an integer between 1 and 3.", field="difficulty")
+            resource.difficulty = diff
+        if "approved" in data:
+            resource.approved = bool(data.get("approved"))
+
+        resource.updated_at = datetime.utcnow()
+        db.session.commit()
+        return ContentService.serialize_resource(resource)
+
+    @staticmethod
+    def delete_resource(resource_id):
+        resource = db.session.get(Resource, resource_id)
+        if not resource:
+            raise LookupError(f"Resource with ID {resource_id} not found.")
+        db.session.delete(resource)
+        db.session.commit()
+        return {"deleted": True, "id": resource_id}
 
     # ---------------------------------------------------------
     # Error Pattern Tags
@@ -566,3 +782,35 @@ class ContentService:
         db.session.delete(question)
         db.session.commit()
         return {"deleted": True, "id": question_id}
+
+    @staticmethod
+    def get_similar_questions(question_id, limit=3, is_student_safe=True):
+        """Return approved remediation questions sharing skill or topic, preserving student-safe serialization."""
+        target = db.session.get(Question, question_id)
+        if not target or (is_student_safe and not target.approved):
+            raise LookupError(f"Question with ID {question_id} not found.")
+
+        candidates = (
+            Question.query.filter(
+                Question.id != target.id,
+                Question.topic_id == target.topic_id,
+                Question.approved == True,
+            ).all()
+        )
+        # Prioritize matching skill_id first, then closer or easier difficulty
+        candidates.sort(
+            key=lambda q: (
+                0 if (target.skill_id and q.skill_id == target.skill_id) else 1,
+                abs((q.difficulty or 1) - (target.difficulty or 1)),
+                q.difficulty or 1,
+                q.id,
+            )
+        )
+        selected = candidates[: max(1, min(10, int(limit or 3)))]
+        return {
+            "source_question_id": target.id,
+            "questions": [
+                ContentService.serialize_question(q, is_student_safe=is_student_safe)
+                for q in selected
+            ],
+        }

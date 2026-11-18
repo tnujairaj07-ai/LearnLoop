@@ -74,11 +74,16 @@ class Class(db.Model):
     grade = db.Column(db.String(20), nullable=False)
     section = db.Column(db.String(10), nullable=False)
     academic_year = db.Column(db.String(20), nullable=False)
+    homeroom_teacher_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     data_source = db.Column(db.String(32), default="manual", nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
+
+    homeroom_teacher = db.relationship("User", foreign_keys=[homeroom_teacher_id])
 
     enrollments = db.relationship(
         "Enrollment",
@@ -144,3 +149,13 @@ class TeacherAssignment(db.Model):
     teacher = db.relationship("User", back_populates="teacher_assignments")
     classroom = db.relationship("Class", back_populates="teacher_assignments")
     subject = db.relationship("Subject", back_populates="teacher_assignments")
+
+
+class TokenBlocklist(db.Model):
+    """Persisted JWT revocation store so logged-out tokens remain invalid across restarts."""
+
+    __tablename__ = "token_blocklist"
+
+    id = db.Column(db.Integer, primary_key=True)
+    jti = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

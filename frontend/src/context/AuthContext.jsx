@@ -1,21 +1,6 @@
-import { createContext, useContext, useState, useCallback, useMemo } from "react";
-import * as studentApi from "../api/client";
+import { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 import { authService } from "../services/authService";
 
-/**
- * Single auth context for the whole LearnLoop app (student + teacher/admin).
- *
- * Two login flows feed into the same `user` state:
- *  - Student: `signIn(email, password)` — talks to the student mock/API in
- *    api/client.js and always resolves to a "student" role.
- *  - Teacher/Admin: pages call `authService.login({ email, password, role })`
- *    themselves (see services/authService.js), then hand the resolved
- *    `{ role, user, token }` session to `setSession()`.
- *
- * Real auth/session logic still belongs to the backend — this context only
- * tracks whichever session was handed to it and persists it so a refresh
- * doesn't sign the user out.
- */
 const AuthContext = createContext(null);
 
 const USER_KEY = "learnloop_user";
@@ -45,19 +30,52 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  // Student-style sign-in: email + password, always a student session.
+  // Re-sync authenticated user profile from /api/auth/me on initial load if a JWT exists
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+
+    let active = true;
+    authService
+      .currentUser()
+      .then((profile) => {
+        if (!active || !profile) return;
+        const classInfo = profile.enrolled_classes?.[0];
+        const hydrated = {
+          ...profile,
+          class_name: profile.class_name || classInfo?.class_name || null,
+          grade: profile.grade || classInfo?.grade || "Class 9",
+        };
+        persist(hydrated, token);
+        setUser(hydrated);
+      })
+      .catch((err) => {
+        if (active && err?.status === 401) {
+          persist(null);
+          setUser(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [persist]);
+
   const signIn = useCallback(
     async (email, password) => {
       setLoading(true);
       setError("");
       try {
-        const { token, user: studentUser } = await studentApi.login(email, password);
-        const nextUser = { ...studentUser, role: studentUser.role || "student" };
-        persist(nextUser, token);
+        const session = await authService.login({ email, password });
+        const nextUser = {
+          ...session.user,
+          role: session.role || session.user?.role || "student",
+        };
+        persist(nextUser, session.token);
         setUser(nextUser);
         return nextUser;
       } catch (err) {
-        setError(err.message || "Could not sign in. Check your details and try again.");
+        setError(err.message || "Could not sign in. Check your credentials and try again.");
         throw err;
       } finally {
         setLoading(false);
@@ -67,23 +85,18 @@ export function AuthProvider({ children }) {
   );
 
   const signUp = useCallback(
-    async ({ name, email, password, role = "student", grade = "Grade 9" }) => {
+    async ({ name, email, password, role = "student", grade = "Class 9", class_id = null }) => {
       setLoading(true);
       setError("");
       try {
-        if (role === "student") {
-          const { token, user: studentUser } = await studentApi.register({ name, email, password, role, grade });
-          const nextUser = { ...studentUser, role: "student" };
-          persist(nextUser, token);
-          setUser(nextUser);
-          return nextUser;
-        } else {
-          const result = await authService.register({ name, email, password, role });
-          const nextUser = { ...result.user, role: result.role };
-          persist(nextUser, result.token);
-          setUser(nextUser);
-          return nextUser;
-        }
+        const session = await authService.register({ name, email, password, role, grade, class_id });
+        const nextUser = {
+          ...session.user,
+          role: session.role || session.user?.role || role,
+        };
+        persist(nextUser, session.token);
+        setUser(nextUser);
+        return nextUser;
       } catch (err) {
         setError(err.message || "Could not create account. Please check your details.");
         throw err;
@@ -94,18 +107,24 @@ export function AuthProvider({ children }) {
     [persist]
   );
 
-  // Teacher/admin-style: a session object already resolved by authService.login().
   const setSession = useCallback(
     (session) => {
       if (!session) return;
-      const nextUser = { ...session.user, role: session.role };
-      persist(nextUser, session.token);
+      const nextUser = {
+        ...session.user,
+        role: session.role || session.user?.role,
+      };
+      persist(nextUser, session.token || session.access_token);
       setUser(nextUser);
     },
     [persist]
   );
 
   const signOut = useCallback(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      authService.logout().catch(() => {});
+    }
     persist(null);
     setUser(null);
   }, [persist]);
@@ -114,7 +133,7 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       role: user?.role ?? null,
-      isAuthenticated: Boolean(user),
+      isAuthenticated: Boolean(user && localStorage.getItem(TOKEN_KEY)),
       error,
       loading,
       signIn,

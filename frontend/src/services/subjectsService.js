@@ -1,7 +1,8 @@
 import { apiClient } from '../lib/apiClient'
 
 export const subjectsService = {
-  listAll: () => apiClient.get('/admin/subjects'),
-  create: (data) => apiClient.post('/admin/subjects', data),
-  update: (subjectId, data) => apiClient.patch(`/admin/subjects/${subjectId}`, data),
+  listAll: () => apiClient.get('/content/subjects').then((d) => d?.subjects || []),
+  create: (data) => apiClient.post('/content/subjects', data).then((d) => d?.subject || d),
+  update: (subjectId, data) =>
+    apiClient.patch(`/content/subjects/${subjectId}`, data).then((d) => d?.subject || d),
 }

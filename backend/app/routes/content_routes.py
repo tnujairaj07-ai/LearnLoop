@@ -45,6 +45,32 @@ def create_subject():
         return error_response(e.message, errors=[e.to_dict()], status_code=400)
 
 
+@content_bp.route("/subjects/<int:subject_id>", methods=["PUT", "PATCH"])
+@admin_required
+def update_subject(subject_id):
+    """Update subject metadata or status (admin only)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+
+    try:
+        subject = ContentService.update_subject(subject_id, data)
+        return success_response(data={"subject": subject}, message="Subject updated successfully.")
+    except LookupError as e:
+        return error_response(message=str(e), status_code=404)
+    except ContentValidationError as e:
+        return error_response(e.message, errors=[e.to_dict()], status_code=400)
+
+
+@content_bp.route("/topics", methods=["GET"])
+@jwt_required()
+def list_topics():
+    """List topics, optionally filtered by subject_id."""
+    subject_id = request.args.get("subject_id", type=int)
+    topics = ContentService.list_topics(subject_id=subject_id)
+    return success_response(data={"topics": topics})
+
+
 @content_bp.route("/topics/<int:topic_id>", methods=["GET"])
 @jwt_required()
 def get_topic(topic_id):
@@ -54,6 +80,36 @@ def get_topic(topic_id):
         return success_response(data={"topic": topic})
     except LookupError as e:
         return error_response(message=str(e), status_code=404)
+
+
+@content_bp.route("/topics/<int:topic_id>", methods=["PUT", "PATCH"])
+@teacher_required
+def update_topic(topic_id):
+    """Update topic metadata or ordering (teacher or admin)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+
+    try:
+        topic = ContentService.update_topic(topic_id, data)
+        return success_response(data={"topic": topic}, message="Topic updated successfully.")
+    except LookupError as e:
+        return error_response(message=str(e), status_code=404)
+    except ContentValidationError as e:
+        return error_response(e.message, errors=[e.to_dict()], status_code=400)
+
+
+@content_bp.route("/topics/<int:topic_id>", methods=["DELETE"])
+@teacher_required
+def delete_topic(topic_id):
+    """Delete an unused topic (blocked if questions or mastery evidence already exist)."""
+    try:
+        result = ContentService.delete_topic(topic_id)
+        return success_response(data=result, message="Topic deleted successfully.")
+    except LookupError as e:
+        return error_response(message=str(e), status_code=404)
+    except ContentValidationError as e:
+        return error_response(e.message, errors=[e.to_dict()], status_code=400)
 
 
 @content_bp.route("/topics", methods=["POST"])
@@ -130,6 +186,34 @@ def create_resource():
         return success_response(data={"resource": resource}, message="Resource created successfully.", status_code=201)
     except ContentValidationError as e:
         return error_response(e.message, errors=[e.to_dict()], status_code=400)
+
+
+@content_bp.route("/resources/<int:resource_id>", methods=["PUT", "PATCH"])
+@teacher_required
+def update_resource(resource_id):
+    """Update an educational resource."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+
+    try:
+        resource = ContentService.update_resource(resource_id, data)
+        return success_response(data={"resource": resource}, message="Resource updated successfully.")
+    except LookupError as e:
+        return error_response(message=str(e), status_code=404)
+    except ContentValidationError as e:
+        return error_response(e.message, errors=[e.to_dict()], status_code=400)
+
+
+@content_bp.route("/resources/<int:resource_id>", methods=["DELETE"])
+@teacher_required
+def delete_resource(resource_id):
+    """Delete an educational resource."""
+    try:
+        result = ContentService.delete_resource(resource_id)
+        return success_response(data=result, message="Resource deleted successfully.")
+    except LookupError as e:
+        return error_response(message=str(e), status_code=404)
 
 
 # -------------------------------------------------------------
@@ -214,6 +298,24 @@ def get_question(question_id):
         return error_response(message=str(e), status_code=404)
 
 
+@content_bp.route("/questions/<int:question_id>/similar", methods=["GET"])
+@jwt_required()
+def get_similar_questions(question_id):
+    """Retrieve similar skill/topic practice questions (student-safe filtered for students)."""
+    claims = get_jwt()
+    user_role = claims.get("role", "student")
+    is_student_safe = (user_role == "student")
+    limit = request.args.get("limit", default=3, type=int)
+
+    try:
+        result = ContentService.get_similar_questions(
+            question_id=question_id, limit=limit, is_student_safe=is_student_safe
+        )
+        return success_response(data=result)
+    except LookupError as e:
+        return error_response(message=str(e), status_code=404)
+
+
 @content_bp.route("/questions", methods=["POST"])
 @teacher_required
 def create_question():
@@ -230,7 +332,7 @@ def create_question():
         return error_response(e.message, errors=[e.to_dict()], status_code=400)
 
 
-@content_bp.route("/questions/<int:question_id>", methods=["PUT"])
+@content_bp.route("/questions/<int:question_id>", methods=["PUT", "PATCH"])
 @teacher_required
 def update_question(question_id):
     """Update instructional metadata of an existing question."""

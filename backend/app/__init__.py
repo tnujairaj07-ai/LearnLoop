@@ -42,8 +42,14 @@ def create_app(config_name=None):
         cors_origins = "*"
     else:
         cors_origins = [url.strip() for url in frontend_env.split(",") if url.strip()]
-        if "http://localhost:5173" not in cors_origins:
-            cors_origins.append("http://localhost:5173")
+        for dev_origin in (
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
+        ):
+            if dev_origin not in cors_origins:
+                cors_origins.append(dev_origin)
 
     cors.init_app(
         app,

@@ -1,8 +1,8 @@
 import { apiClient } from '../lib/apiClient'
 
 export const masteryService = {
-  classHeatmap: (classId, { topicId } = {}) =>
-    apiClient.get(`/teacher/classes/${classId}/mastery-heatmap`, { params: { topicId } }),
-  studentTopicHistory: (studentId, topicId) =>
-    apiClient.get(`/student/${studentId}/mastery/${topicId}/history`),
+  classHeatmap: (classId) => apiClient.get(`/teacher/classes/${classId}/mastery-matrix`),
+  classErrorPatterns: (classId) => apiClient.get(`/teacher/classes/${classId}/error-patterns`),
+  reviewErrorPattern: (flagId, data) =>
+    apiClient.post(`/teacher/error-patterns/${flagId}/review`, data),
 }

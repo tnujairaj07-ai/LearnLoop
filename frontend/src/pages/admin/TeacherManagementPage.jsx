@@ -8,7 +8,7 @@ import { Table } from '../../components/ui/Table'
 import { useApi } from '../../hooks/useApi'
 import { adminService } from '../../services/adminService'
 
-const emptyForm = { name: '', email: '' }
+const emptyForm = { name: '', email: '', password: '' }
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
@@ -28,6 +28,7 @@ export default function TeacherManagementPage() {
     if (!form.name.trim()) next.name = 'Name is required.'
     if (!form.email.trim()) next.email = 'Email is required.'
     else if (!isValidEmail(form.email)) next.email = 'Enter a valid email address.'
+    if (form.password && form.password.length < 6) next.password = 'Password must be at least 6 characters.'
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -37,7 +38,11 @@ export default function TeacherManagementPage() {
     setSaving(true)
     setSaveError(null)
     try {
-      await adminService.createTeacher(form)
+      await adminService.createTeacher({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        ...(form.password.trim() ? { password: form.password } : {}),
+      })
       setModalOpen(false)
       setForm(emptyForm)
       refetch()
@@ -65,12 +70,18 @@ export default function TeacherManagementPage() {
           {status === 'error' && <ErrorState message={error.message} onRetry={refetch} />}
           {isEmpty && <EmptyState title="No teachers yet" description="Create the first teacher account." />}
           {status === 'success' && !isEmpty && (
-            <Table columns={['Name', 'Email', 'Classes assigned']}>
+            <Table columns={['ID', 'Name', 'Email', 'Classes assigned', 'Homeroom']}>
               {data.map((t) => (
                 <tr key={t.id}>
+                  <td className="px-3 py-2 font-mono text-xs text-slate-500">{t.public_id || `#${t.id}`}</td>
                   <td className="px-3 py-2 font-medium">{t.name}</td>
-                  <td className="px-3 py-2 text-ink-faint">{t.email}</td>
-                  <td className="px-3 py-2 tabular-nums">{t.classCount ?? 0}</td>
+                  <td className="px-3 py-2 text-slate-500">{t.email}</td>
+                  <td className="px-3 py-2 tabular-nums">{t.class_count ?? t.assignments_count ?? 0}</td>
+                  <td className="px-3 py-2 text-xs text-slate-600">
+                    {Array.isArray(t.homeroom_classes) && t.homeroom_classes.length > 0
+                      ? t.homeroom_classes.join(', ')
+                      : '—'}
+                  </td>
                 </tr>
               ))}
             </Table>
@@ -99,7 +110,15 @@ export default function TeacherManagementPage() {
         <FormField label="Email" htmlFor="teacherEmail" error={errors.email} required>
           <TextInput id="teacherEmail" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </FormField>
-        {saveError && <p className="text-sm text-clay-700">{saveError}</p>}
+        <FormField label="Initial password" htmlFor="teacherPassword" error={errors.password} hint="Optional (min 6 chars; auto-generated if left blank)">
+          <TextInput
+            id="teacherPassword"
+            type="password"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+          />
+        </FormField>
+        {saveError && <p className="text-sm text-rose-600">{saveError}</p>}
       </Modal>
     </>
   )

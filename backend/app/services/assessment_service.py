@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
+
 from app.extensions import db
 from app.models.academic import Subject, Topic
 from app.models.assessment import Answer, Assessment, AssessmentQuestion, Attempt
@@ -22,6 +24,12 @@ class AssessmentService:
             "id": assessment.id,
             "title": assessment.title,
             "assessment_type": assessment.assessment_type,
+            "category": assessment.category,
+            "exercise_label": assessment.exercise_label,
+            "estimated_minutes": assessment.estimated_minutes,
+            "difficulty_label": assessment.difficulty_label,
+            "term_label": assessment.term_label,
+            "allow_retakes": assessment.allow_retakes,
             "subject_id": assessment.subject_id,
             "topic_id": assessment.topic_id,
             "class_id": assessment.class_id,
@@ -33,12 +41,17 @@ class AssessmentService:
             "created_at": assessment.created_at.isoformat() if assessment.created_at else None,
         }
 
-        # If user_id is provided, check student attempt status
+        # If user_id is provided, check latest student attempt status
         if user_id:
-            attempt = Attempt.query.filter_by(assessment_id=assessment.id, student_id=user_id).first()
+            attempt = (
+                Attempt.query.filter_by(assessment_id=assessment.id, student_id=user_id)
+                .order_by(Attempt.attempt_number.desc())
+                .first()
+            )
             if attempt:
                 data["user_attempt"] = {
                     "attempt_id": attempt.id,
+                    "attempt_number": attempt.attempt_number,
                     "status": attempt.status,
                     "score": attempt.score,
                     "percentage": attempt.percentage,
@@ -237,27 +250,49 @@ class AssessmentService:
         if assessment.available_until and now > assessment.available_until:
             raise ValueError("Assessment availability has closed.")
 
-        # 3. Idempotency check
-        existing_attempt = Attempt.query.filter_by(
-            assessment_id=assessment_id, student_id=student_id
-        ).first()
+        # 3. Idempotency & retake policy check
+        existing_attempts = (
+            Attempt.query.filter_by(assessment_id=assessment_id, student_id=student_id)
+            .order_by(Attempt.attempt_number.desc())
+            .all()
+        )
 
-        if existing_attempt:
-            if existing_attempt.status == "in_progress":
-                return AssessmentService._serialize_attempt_session(existing_attempt)
+        in_progress = next((a for a in existing_attempts if a.status == "in_progress"), None)
+        if in_progress:
+            return AssessmentService._serialize_attempt_session(in_progress)
+
+        if existing_attempts and not assessment.allow_retakes:
             raise ValueError("Assessment has already been submitted.")
 
-        # 4. Create new attempt
+        next_attempt_number = (existing_attempts[0].attempt_number + 1) if existing_attempts else 1
+
+        # 4. Create new attempt (handle concurrent start requests idempotently)
         attempt = Attempt(
             assessment_id=assessment_id,
             student_id=student_id,
+            attempt_number=next_attempt_number,
             attempt_type=assessment.assessment_type,
             status="in_progress",
             started_at=now,
         )
-        db.session.add(attempt)
-        db.session.commit()
-        return AssessmentService._serialize_attempt_session(attempt)
+        try:
+            db.session.add(attempt)
+            db.session.commit()
+            return AssessmentService._serialize_attempt_session(attempt)
+        except IntegrityError:
+            db.session.rollback()
+            concurrent_in_progress = (
+                Attempt.query.filter_by(
+                    assessment_id=assessment_id,
+                    student_id=student_id,
+                    status="in_progress",
+                )
+                .order_by(Attempt.attempt_number.desc(), Attempt.id.desc())
+                .first()
+            )
+            if concurrent_in_progress:
+                return AssessmentService._serialize_attempt_session(concurrent_in_progress)
+            raise ValueError("Assessment has already been submitted.")
 
     @staticmethod
     def _serialize_attempt_session(attempt):
@@ -390,6 +425,9 @@ class AssessmentService:
                 MasteryService.calculate_and_persist_mastery(student_id, t_id)
                 ErrorPatternService.detect_and_persist_flags(student_id, t_id)
                 RecommendationService.generate_recommendations(student_id, t_id)
+
+            from app.services.student_portal_service import StudentPortalService
+            StudentPortalService.record_attempt_engagement(attempt)
 
             from app.services.audit_service import AuditService
             AuditService.log_event(

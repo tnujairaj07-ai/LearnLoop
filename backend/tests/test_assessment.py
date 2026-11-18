@@ -348,3 +348,63 @@ def test_cross_student_security_guards(seeded_client):
     # Student B cannot view Student A's result (403)
     result_b = seeded_client.get(f"/api/attempts/{attempt_a_id}/result", headers=student_b_headers)
     assert result_b.status_code == 403
+
+
+def test_start_attempt_recovers_from_integrity_error_race(seeded_client, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+    from app.extensions import db
+    from app.models.user import User
+    from app.services.assessment_service import AssessmentService
+
+    student_headers = _login(seeded_client, "student.a@learnloop.demo")
+    first = seeded_client.post("/api/assessments/1/start", headers=student_headers)
+    assert first.status_code == 200
+    attempt_id = first.get_json()["data"]["attempt"]["attempt_id"]
+
+    with seeded_client.application.app_context():
+        stu = User.query.filter_by(email="student.a@learnloop.demo").first()
+        # Simulate another worker having already inserted the row while our initial query saw none
+        original_commit = db.session.commit
+        call_count = {"n": 0}
+
+        def failing_commit():
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise IntegrityError("INSERT", {}, Exception("Duplicate entry"))
+            return original_commit()
+
+        from app.models.assessment import Attempt
+
+        original_filter_by = Attempt.query.filter_by
+        monkeypatch.setattr(db.session, "commit", failing_commit)
+
+        # Call start_attempt where initial in_progress lookup returns empty, forcing insert + IntegrityError path
+        class _EmptyOnceQuery:
+            def __init__(self, real_query):
+                self._real = real_query
+                self._used = False
+
+            def order_by(self, *args, **kwargs):
+                return self
+
+            def all(self):
+                if not self._used:
+                    self._used = True
+                    return []
+                return self._real.all()
+
+            def first(self):
+                return self._real.first()
+
+        orig_attempt_query = Attempt.query
+
+        class _QueryWrapper:
+            def filter_by(self, **kwargs):
+                q = original_filter_by(**kwargs)
+                return _EmptyOnceQuery(q) if kwargs.get("status") is None else q
+
+        monkeypatch.setattr(Attempt, "query", _QueryWrapper())
+        recovered = AssessmentService.start_attempt(1, stu.id)
+        monkeypatch.setattr(Attempt, "query", orig_attempt_query)
+        assert recovered["attempt_id"] == attempt_id
+        assert recovered["status"] == "in_progress"

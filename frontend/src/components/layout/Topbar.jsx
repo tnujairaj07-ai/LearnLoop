@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
 export function Topbar({ title, breadcrumb, subtitle, actions }) {
-  const { user, role, clearSession } = useAuth()
+  const { user, role, signOut } = useAuth()
   const navigate = useNavigate()
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef(null)
@@ -18,14 +18,15 @@ export function Topbar({ title, breadcrumb, subtitle, actions }) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  function handleSignOut() {
-    clearSession()
+  async function handleSignOut() {
+    await signOut()
     navigate('/login')
   }
 
-  const teacherName = user?.name || 'Alex Rivera'
-  const teacherEmail = user?.email || 'alex.rivera@learnloop.edu'
-  const teacherRole = role === 'admin' ? 'Administrator' : 'Class 9 Teacher'
+  const teacherName = user?.name || (role === 'admin' ? 'Administrator' : 'Educator')
+  const teacherEmail = user?.email || ''
+  const teacherRole = role === 'admin' ? 'Administrator' : 'Educator'
+  const workspaceLabel = role === 'admin' ? 'Administration Console' : 'Closed-Loop Workspace'
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200/80 bg-white/95 px-6 py-3.5 backdrop-blur-md shadow-2xs">
@@ -46,10 +47,10 @@ export function Topbar({ title, breadcrumb, subtitle, actions }) {
       <div className="flex items-center gap-3">
         {actions && <div className="flex items-center gap-2">{actions}</div>}
 
-        {/* Quick Active Pilot Tag */}
+        {/* Workspace Pill */}
         <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-semibold text-blue-700">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-          <span>Active Pilot: Class 9 Math</span>
+          <span>{workspaceLabel}</span>
         </div>
 
         {/* Profile Pill with Avatar, Name, Email and Dropdown */}
@@ -105,30 +106,61 @@ export function Topbar({ title, breadcrumb, subtitle, actions }) {
               </div>
 
               <div className="space-y-0.5 text-xs font-medium text-slate-700">
-                <Link
-                  to="/teacher"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
-                >
-                  <span>📊</span>
-                  <span>Teacher Dashboard</span>
-                </Link>
-                <Link
-                  to="/teacher/interventions"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
-                >
-                  <span>⚡</span>
-                  <span>Intervention Queue</span>
-                </Link>
-                <Link
-                  to="/teacher/reports"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
-                >
-                  <span>📑</span>
-                  <span>Report Generator</span>
-                </Link>
+                {role === 'admin' ? (
+                  <>
+                    <Link
+                      to="/admin/classes"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                    >
+                      <span>🏛️</span>
+                      <span>Class Management</span>
+                    </Link>
+                    <Link
+                      to="/admin/assignments"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                    >
+                      <span>📐</span>
+                      <span>Teacher Assignments</span>
+                    </Link>
+                    <Link
+                      to="/admin/audit-logs"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                    >
+                      <span>🛡️</span>
+                      <span>Audit &amp; System Status</span>
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      to="/teacher"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                    >
+                      <span>📊</span>
+                      <span>Teacher Dashboard</span>
+                    </Link>
+                    <Link
+                      to="/teacher/interventions"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                    >
+                      <span>⚡</span>
+                      <span>Intervention Queue</span>
+                    </Link>
+                    <Link
+                      to="/teacher/reports"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                    >
+                      <span>📑</span>
+                      <span>Report Generator</span>
+                    </Link>
+                  </>
+                )}
               </div>
 
               <div className="pt-2 mt-1.5 border-t border-slate-100">

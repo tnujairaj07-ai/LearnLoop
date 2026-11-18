@@ -12,6 +12,14 @@ class Assessment(db.Model):
             name="ck_assessments_type",
         ),
         db.CheckConstraint(
+            "category IN ('diagnostic', 'assignment', 'practice_quiz', 'mock_test', 'reassessment')",
+            name="ck_assessments_category",
+        ),
+        db.CheckConstraint(
+            "difficulty_label IN ('easy', 'medium', 'hard')",
+            name="ck_assessments_difficulty_label",
+        ),
+        db.CheckConstraint(
             "status IN ('draft', 'published', 'closed')", name="ck_assessments_status"
         ),
     )
@@ -19,6 +27,13 @@ class Assessment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(150), nullable=False)
     assessment_type = db.Column(db.String(50), nullable=False)
+    category = db.Column(db.String(30), default="practice_quiz", nullable=False)
+    exercise_label = db.Column(db.String(80))
+    estimated_minutes = db.Column(db.Integer, default=15, nullable=False)
+    difficulty_label = db.Column(db.String(20), default="medium", nullable=False)
+    due_date = db.Column(db.DateTime)
+    term_label = db.Column(db.String(50))
+    allow_retakes = db.Column(db.Boolean, default=False, nullable=False)
     subject_id = db.Column(
         db.Integer, db.ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -76,7 +91,12 @@ class AssessmentQuestion(db.Model):
 class Attempt(db.Model):
     __tablename__ = "attempts"
     __table_args__ = (
-        db.UniqueConstraint("assessment_id", "student_id", name="uq_attempts_assessment_student"),
+        db.UniqueConstraint(
+            "assessment_id",
+            "student_id",
+            "attempt_number",
+            name="uq_attempts_assessment_student_num",
+        ),
         db.CheckConstraint(
             "attempt_type IN ('diagnostic', 'practice', 'reassessment')",
             name="ck_attempts_type",
@@ -85,6 +105,7 @@ class Attempt(db.Model):
             "status IN ('in_progress', 'submitted', 'scored', 'processing_failed')",
             name="ck_attempts_status",
         ),
+        db.CheckConstraint("attempt_number >= 1", name="ck_attempts_number"),
         db.CheckConstraint("score IS NULL OR score >= 0", name="ck_attempts_score"),
         db.CheckConstraint(
             "percentage IS NULL OR (percentage >= 0 AND percentage <= 100)",
@@ -99,6 +120,7 @@ class Attempt(db.Model):
     student_id = db.Column(
         db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    attempt_number = db.Column(db.Integer, default=1, nullable=False)
     attempt_type = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(30), default="in_progress", nullable=False)
     started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

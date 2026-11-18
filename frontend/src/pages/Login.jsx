@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { authService } from "../services/authService";
 import { Brand } from "../components/Brand";
 
 const ROLES = [
@@ -98,25 +97,13 @@ export default function Login({ initialMode }) {
     setInfoMessage(`Filled ${account.role} credentials (${account.email}). Click Sign In or Instant Login!`);
   }
 
-  // 1-Click instant sign-in directly into the corresponding dashboard
+  // 1-Click instant sign-in directly into the corresponding live DB account
   async function instantDemoLogin(account) {
     setLocalError("");
     setSubmitting(true);
     try {
-      let resolvedRole = account.role;
-      if (account.role === "student") {
-        const user = await signIn(account.email, account.password);
-        resolvedRole = user.role || "student";
-      } else {
-        const result = await authService.login({
-          email: account.email,
-          password: account.password,
-          role: account.role,
-        });
-        setSession(result);
-        resolvedRole = result.role;
-      }
-      navigate(destinationFor(resolvedRole), { replace: true });
+      const user = await signIn(account.email, account.password);
+      navigate(destinationFor(user.role || account.role), { replace: true });
     } catch (err) {
       setLocalError(err.message || "Demo login failed.");
     } finally {
@@ -133,21 +120,17 @@ export default function Login({ initialMode }) {
 
     try {
       if (mode === "signin") {
-        let resolvedRole = role;
-        if (role === "student") {
-          const user = await signIn(email, password);
-          resolvedRole = user.role || "student";
-        } else {
-          const result = await authService.login({ email, password, role });
-          setSession(result);
-          resolvedRole = result.role;
-        }
-        navigate(destinationFor(resolvedRole), { replace: true });
+        const user = await signIn(email, password);
+        navigate(destinationFor(user.role || role), { replace: true });
       } else {
-        // Sign up
         if (!name.trim()) throw new Error("Please enter your full name.");
         if (!email.trim()) throw new Error("Please enter your institutional email.");
-        if (!password || password.length < 4) throw new Error("Please enter a password with at least 4 characters.");
+        if (!password || password.length < 6) {
+          throw new Error("Please enter a password with at least 6 characters.");
+        }
+        if (role === "admin") {
+          throw new Error("Administrator accounts must be provisioned by an existing administrator.");
+        }
 
         const user = await signUp({
           name,
@@ -264,9 +247,9 @@ export default function Login({ initialMode }) {
                 <div className="h-px bg-slate-200 flex-1" />
               </div>
 
-              {/* Role Selector Tabs (Styled matching LearnLoop's brand blue) */}
+              {/* Role Selector Tabs */}
               <div className="mb-4 bg-slate-100/90 p-1 rounded-xl flex items-center border border-slate-200/70">
-                {ROLES.map((r) => {
+                {ROLES.filter((r) => mode === "signin" || r.id !== "admin").map((r) => {
                   const active = role === r.id;
                   return (
                     <button

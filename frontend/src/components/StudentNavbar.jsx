@@ -1,30 +1,41 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getStudentDashboard, markReminderRead } from "../api/client";
 import AccessibilityToggle from "./AccessibilityToggle";
 
-const QUICK_SEARCH_TOPICS = [
-  { id: "ch-1", title: "Number Systems & Real Numbers", chapter: "Chapter 1", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-2", title: "Polynomials & Algebraic Identities", chapter: "Chapter 2", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-3", title: "Coordinate Geometry", chapter: "Chapter 3", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-4", title: "Linear Equations in Two Variables", chapter: "Chapter 4", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-5", title: "Introduction to Euclid's Geometry", chapter: "Chapter 5", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-6", title: "Lines and Angles", chapter: "Chapter 6", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-7", title: "Triangles & Congruence Criteria", chapter: "Chapter 7", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-8", title: "Quadrilaterals & Parallelograms", chapter: "Chapter 8", type: "Topic", to: "/roadmap/math" },
-  { id: "ch-14", title: "Statistics & Frequency Distribution", chapter: "Chapter 14", type: "Topic", to: "/roadmap/math" },
-  { id: "quiz-t2", title: "Diagnostic Assessment Checkpoint", chapter: "Adaptive", type: "Quiz", to: "/quiz/t2?mode=practice" },
-  { id: "quiz-t3", title: "Linear Equations Mastery Practice", chapter: "Practice", type: "Quiz", to: "/quiz/t3?mode=practice" },
-  { id: "analysis", title: "Mastery Trajectory & Heatmap", chapter: "Analytics", type: "Report", to: "/analysis" },
+const BASE_PORTAL_SHORTCUTS = [
+  { id: "nav-roadmap", title: "My Courses & Roadmaps", chapter: "Curriculum", type: "Course", to: "/roadmap" },
+  { id: "nav-practice", title: "Practice & Assessment Hub", chapter: "Assessments", type: "Quiz", to: "/practice" },
+  { id: "nav-analysis", title: "Mastery Trajectory & Heatmap", chapter: "Analytics", type: "Report", to: "/analysis" },
+  { id: "nav-weekly", title: "Weekly Progress & Schedule", chapter: "Analytics", type: "Report", to: "/weekly-progress" },
+  { id: "nav-report", title: "Academic Report Card", chapter: "Reports", type: "Report", to: "/report-card" },
 ];
 
+function formatReminderTime(isoString) {
+  if (!isoString) return "";
+  const dt = new Date(isoString);
+  if (Number.isNaN(dt.getTime())) return String(isoString);
+  return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export default function StudentNavbar({
-  searchQuery = "",
+  searchQuery,
   setSearchQuery,
   onSearchSelect,
+  reminders: remindersProp,
+  topics: topicsProp,
+  nextAction: nextActionProp,
 }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+
+  const [localSearch, setLocalSearch] = useState("");
+  const activeSearch = searchQuery !== undefined ? searchQuery : localSearch;
+  const updateSearch = (val) => {
+    if (setSearchQuery) setSearchQuery(val);
+    else setLocalSearch(val);
+  };
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -36,50 +47,113 @@ export default function StudentNavbar({
   const searchRef = useRef(null);
   const searchInputRef = useRef(null);
 
-  const studentFullName = user?.name || "Aanya Sharma";
-  const studentEmail =
-    user?.email && !user.email.includes("demo") && !user.email.includes("krmu")
-      ? user.email
-      : "aanya.sharma@learnloop.org";
-  const studentRole = user?.role || "student";
+  const studentFullName = user?.name || "Student";
+  const studentEmail = user?.email || "";
+  const studentPublicId = user?.public_id || (user?.id ? `STU-${user.id}` : "STUDENT");
+  const [classNameLabel, setClassNameLabel] = useState(user?.class_name || "");
   const gradeLabel = user?.grade || "Class 9";
-  const sectionLabel = "Section A";
 
-  // Notifications mock data
-  const [notifications, setNotifications] = useState([
-    {
-      id: "notif-1",
-      title: "Targeted Practice Assigned",
-      desc: "Teacher Ms. Vandana assigned Linear Equations sign rules practice.",
-      time: "20m ago",
-      read: false,
-      link: "/quiz/t3?mode=practice",
-    },
-    {
-      id: "notif-2",
-      title: "Mastery Update",
-      desc: "Your Polynomials accuracy improved to 62% (+14%).",
-      time: "2h ago",
-      read: false,
-      link: "/analysis",
-    },
-    {
-      id: "notif-3",
-      title: "Diagnostic Checkpoint Ready",
-      desc: "Geometry Review reassessment is unlocked for you.",
-      time: "Yesterday",
-      read: true,
-      link: "/roadmap/math",
-    },
-  ]);
+  const [notifications, setNotifications] = useState([]);
+  const [topicItems, setTopicItems] = useState([]);
+  const [nextAction, setNextAction] = useState(nextActionProp || null);
+
+  useEffect(() => {
+    if (Array.isArray(remindersProp)) {
+      setNotifications(
+        remindersProp.map((r) => ({
+          id: r.id,
+          title: r.title,
+          desc: r.message || r.desc || "",
+          time: formatReminderTime(r.created_at),
+          read: Boolean(r.is_read),
+          link: r.reminder_type === "assessment" ? "/practice" : "/analysis",
+        }))
+      );
+    }
+  }, [remindersProp]);
+
+  useEffect(() => {
+    if (Array.isArray(topicsProp)) {
+      setTopicItems(topicsProp);
+    }
+  }, [topicsProp]);
+
+  useEffect(() => {
+    if (nextActionProp !== undefined) {
+      setNextAction(nextActionProp);
+    }
+  }, [nextActionProp]);
+
+  useEffect(() => {
+    if (!user || user.role !== "student") return;
+    if (Array.isArray(remindersProp) && Array.isArray(topicsProp)) return;
+
+    let active = true;
+    getStudentDashboard()
+      .then((res) => {
+        if (!active || !res) return;
+        if (!Array.isArray(remindersProp) && Array.isArray(res.reminders)) {
+          setNotifications(
+            res.reminders.map((r) => ({
+              id: r.id,
+              title: r.title,
+              desc: r.message || "",
+              time: formatReminderTime(r.created_at),
+              read: Boolean(r.is_read),
+              link: r.reminder_type === "assessment" ? "/practice" : "/analysis",
+            }))
+          );
+        }
+        if (!Array.isArray(topicsProp) && Array.isArray(res.topic_summaries)) {
+          setTopicItems(res.topic_summaries);
+        }
+        if (nextActionProp === undefined && res.next_recommended_action) {
+          setNextAction(res.next_recommended_action);
+        }
+        if (Array.isArray(res.classes) && res.classes[0]?.class_name) {
+          setClassNameLabel(res.classes[0].class_name);
+        }
+      })
+      .catch(() => {
+        // Silently degrade header notifications/search enhancements when offline
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, remindersProp, topicsProp, nextActionProp]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  const quickSearchItems = useMemo(() => {
+    const dynamicTopics = (topicItems || []).map((t) => ({
+      id: `topic-${t.topic_id}`,
+      title: t.title,
+      chapter: t.band || "Topic",
+      type: "Topic",
+      to: `/topic/${t.topic_id}`,
+    }));
+    const recShortcut = nextAction?.topic_id
+      ? [
+          {
+            id: "nav-recommended",
+            title: `Next Step: ${nextAction.topic}`,
+            chapter: nextAction.action_type || "Recommended",
+            type: "Quiz",
+            to: `/topic/${nextAction.topic_id}`,
+          },
+        ]
+      : [];
+    return [...recShortcut, ...dynamicTopics, ...BASE_PORTAL_SHORTCUTS];
+  }, [topicItems, nextAction]);
+
   // Filter search results
-  const searchResults = searchQuery.trim()
-    ? QUICK_SEARCH_TOPICS.filter((item) =>
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.chapter.toLowerCase().includes(searchQuery.toLowerCase())
+  const searchResults = activeSearch.trim()
+    ? quickSearchItems.filter(
+        (item) =>
+          item.title.toLowerCase().includes(activeSearch.toLowerCase()) ||
+          item.chapter.toLowerCase().includes(activeSearch.toLowerCase()) ||
+          item.type.toLowerCase().includes(activeSearch.toLowerCase())
       )
     : [];
 
@@ -100,27 +174,46 @@ export default function StudentNavbar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Keyboard shortcut Ctrl+K / Cmd+K to focus search
+  // Keyboard shortcut Ctrl+K / Cmd+K to focus search, Escape to close
   useEffect(() => {
     function handleKeyDown(e) {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
         searchInputRef.current?.focus();
         setSearchFocused(true);
+      } else if (e.key === "Escape") {
+        setSearchFocused(false);
+        setNotificationsOpen(false);
+        setProfileOpen(false);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  function handleSignOut() {
+  async function handleSignOut() {
     setProfileOpen(false);
-    signOut();
+    await signOut();
     navigate("/login");
   }
 
-  function markAllNotificationsRead() {
+  async function markNotificationRead(id) {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try {
+      await markReminderRead(id);
+    } catch {
+      // ignore optimistic sync failure
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      await Promise.all(unreadIds.map((id) => markReminderRead(id)));
+    } catch {
+      // ignore optimistic sync failure
+    }
   }
 
   return (
@@ -157,10 +250,10 @@ export default function StudentNavbar({
               <input
                 ref={searchInputRef}
                 type="text"
-                value={searchQuery}
+                value={activeSearch}
                 onFocus={() => setSearchFocused(true)}
                 onChange={(e) => {
-                  if (setSearchQuery) setSearchQuery(e.target.value);
+                  updateSearch(e.target.value);
                   setSearchFocused(true);
                 }}
                 placeholder="Search topics, questions, formulas... (Ctrl + K)"
@@ -176,12 +269,10 @@ export default function StudentNavbar({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
 
-              {searchQuery ? (
+              {activeSearch ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (setSearchQuery) setSearchQuery("");
-                  }}
+                  onClick={() => updateSearch("")}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors"
                   title="Clear search"
                 >
@@ -197,7 +288,7 @@ export default function StudentNavbar({
             </div>
 
             {/* Live Search Quick Results Dropdown */}
-            {searchFocused && (searchQuery.trim().length > 0 || searchResults.length > 0) && (
+            {searchFocused && (activeSearch.trim().length > 0 || searchResults.length > 0) && (
               <div className="absolute left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-200/90 shadow-xl overflow-hidden z-50 p-2 animate-in fade-in zoom-in-95">
                 <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
                   <span>Quick Results ({searchResults.length})</span>
@@ -237,7 +328,7 @@ export default function StudentNavbar({
                   </div>
                 ) : (
                   <div className="p-4 text-center text-xs text-slate-400">
-                    No results found for "{searchQuery}". Try searching "Linear Equations", "Polynomials", or "Quiz".
+                    No results found for "{activeSearch}". Try searching "Linear Equations", "Polynomials", or "Quiz".
                   </div>
                 )}
               </div>
@@ -261,7 +352,7 @@ export default function StudentNavbar({
 
             {/* Quick Practice Pill */}
             <Link
-              to="/quiz/t3?mode=practice"
+              to={nextAction?.topic_id ? `/topic/${nextAction.topic_id}` : "/practice"}
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/70 transition-colors"
               title="Start Practice Session"
             >
@@ -303,23 +394,32 @@ export default function StudentNavbar({
                     )}
                   </div>
                   <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
-                    {notifications.map((n) => (
-                      <Link
-                        key={n.id}
-                        to={n.link}
-                        onClick={() => setNotificationsOpen(false)}
-                        className={`p-3 flex items-start gap-2.5 rounded-xl hover:bg-slate-50 transition-colors block ${
-                          !n.read ? "bg-blue-50/40" : ""
-                        }`}
-                      >
-                        <div className="w-2 h-2 rounded-full bg-blue-600 mt-1.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-slate-800">{n.title}</p>
-                          <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{n.desc}</p>
-                          <span className="text-[10px] text-slate-400 mt-1 block">{n.time}</span>
-                        </div>
-                      </Link>
-                    ))}
+                    {notifications.length > 0 ? (
+                      notifications.map((n) => (
+                        <Link
+                          key={n.id}
+                          to={n.link}
+                          onClick={() => {
+                            if (!n.read) markNotificationRead(n.id);
+                            setNotificationsOpen(false);
+                          }}
+                          className={`p-3 flex items-start gap-2.5 rounded-xl hover:bg-slate-50 transition-colors block ${
+                            !n.read ? "bg-blue-50/40" : ""
+                          }`}
+                        >
+                          <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.read ? "bg-blue-600" : "bg-slate-300"}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-800">{n.title}</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{n.desc}</p>
+                            {n.time && <span className="text-[10px] text-slate-400 mt-1 block">{n.time}</span>}
+                          </div>
+                        </Link>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center text-xs text-slate-400">
+                        No reminders yet.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -392,10 +492,10 @@ export default function StudentNavbar({
                         </p>
                         <div className="flex items-center gap-1.5 mt-1">
                           <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
-                            STU-4819
+                            {studentPublicId}
                           </span>
                           <span className="text-[10px] text-slate-500 font-medium">
-                            {gradeLabel} · {sectionLabel}
+                            {classNameLabel || gradeLabel}
                           </span>
                         </div>
                       </div>
@@ -460,8 +560,8 @@ export default function StudentNavbar({
             <div className="relative w-full">
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery && setSearchQuery(e.target.value)}
+                value={activeSearch}
+                onChange={(e) => updateSearch(e.target.value)}
                 placeholder="Search topics, questions, formulas..."
                 className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 rounded-xl border border-slate-200 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />

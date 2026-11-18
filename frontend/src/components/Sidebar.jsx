@@ -23,7 +23,7 @@ const navItems = [
     ),
   },
   {
-    to: "/quiz/t3?mode=practice",
+    to: "/practice",
     label: "Practice & Quizzes",
     icon: (
       <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -55,8 +55,8 @@ export default function Sidebar() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
-  function handleSignOut() {
-    signOut();
+  async function handleSignOut() {
+    await signOut();
     navigate("/login");
   }
 
@@ -69,7 +69,7 @@ export default function Sidebar() {
             <Brand size="lg" />
             {user && (
               <p className="mt-1 text-xs font-medium text-slate-400">
-                {user.name} · {user.grade || "Class 9"}
+                {user.name} · {user.class_name || user.grade || "Class 9"}
               </p>
             )}
           </div>
@@ -118,10 +118,10 @@ export default function Sidebar() {
             Practice questions tailored to your diagnostic error patterns.
           </p>
           <button
-            onClick={() => navigate("/quiz/t3?mode=practice")}
+            onClick={() => navigate("/practice")}
             className="mt-3 w-full py-2 px-3 text-xs font-semibold rounded-xl bg-white text-blue-700 hover:bg-blue-50 transition-colors shadow-sm text-center"
           >
-            Start Practice
+            Explore Practice Hub
           </button>
         </div>
 

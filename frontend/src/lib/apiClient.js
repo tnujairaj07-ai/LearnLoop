@@ -1,108 +1,112 @@
-// Thin fetch wrapper shared by every service module.
-// Member 3 (backend) and Member 4 (learning intelligence) own the actual
-// endpoints — this file only standardises how the frontend talks to them.
-// Point VITE_API_BASE_URL at the real API host once it exists.
-//
-// Until then, USE_MOCKS is true and every call is routed to mockData.js
-// instead of the network, so the Teacher/Admin frontend can be explored
-// end-to-end with realistic fake data. This only affects this file (used
-// by the Teacher/Admin services) — the student frontend's own mock layer
-// in api/client.js is untouched.
-import { mockRequest } from './mockData'
-
-const rawEnv = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
-// Endpoints in this file start with /auth, /topics, etc. (without /api)
-// Ensure BASE_URL ends with /api when connecting to a remote backend host
+const rawEnv = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/+$/, "");
 const BASE_URL = rawEnv
-  ? (rawEnv.endsWith('/api') ? rawEnv : `${rawEnv}/api`)
-  : '/api'
-const USE_MOCKS = !import.meta.env.VITE_API_BASE_URL
+  ? rawEnv.endsWith("/api")
+    ? rawEnv
+    : `${rawEnv}/api`
+  : "/api";
 
 export class ApiError extends Error {
   constructor(message, status, details) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.details = details
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.details = details;
   }
 }
 
-async function request(path, { method = 'GET', body, params, signal } = {}) {
-  if (USE_MOCKS) {
-    try {
-      return await mockRequest(path, { method, body, params })
-    } catch (err) {
-      throw new ApiError(err.message || 'Request failed', err.status || 404, err)
-    }
-  }
-
-  let query = ''
+async function request(path, { method = "GET", body, params, signal, unwrap = true } = {}) {
+  let query = "";
   if (params) {
-    const usp = new URLSearchParams()
+    const usp = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') usp.set(key, value)
-    })
-    const qs = usp.toString()
-    if (qs) query = `?${qs}`
+      if (value !== undefined && value !== null && value !== "") {
+        usp.set(key, String(value));
+      }
+    });
+    const qs = usp.toString();
+    if (qs) query = `?${qs}`;
   }
 
-  let response
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const cleanPath = normalizedPath.startsWith("/api/")
+    ? normalizedPath.slice(4)
+    : normalizedPath === "/api"
+    ? ""
+    : normalizedPath;
+
+  let response;
   try {
-    const token = localStorage.getItem('authToken')
+    const token = localStorage.getItem("authToken");
     const headers = {
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    }
-    response = await fetch(`${BASE_URL}${path}${query}`, {
+    };
+    response = await fetch(`${BASE_URL}${cleanPath}${query}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
       signal,
-    })
+    });
   } catch (networkError) {
-    throw new ApiError('Could not reach the server. Check your connection and try again.', 0, networkError)
+    throw new ApiError(
+      "Could not reach the LearnLoop backend server. Ensure Flask is running on port 5000.",
+      0,
+      networkError
+    );
   }
 
-  const contentType = response.headers.get('content-type') || ''
-  const text = await response.text()
-  let payload = null
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+  let payload = null;
 
   if (text) {
-    if (contentType.includes('application/json')) {
+    if (contentType.includes("application/json")) {
       try {
-        payload = JSON.parse(text)
+        payload = JSON.parse(text);
       } catch {
-        throw new ApiError('The server returned a response that was not valid JSON.', response.status, text)
+        throw new ApiError(
+          "The server returned a response that was not valid JSON.",
+          response.status,
+          text
+        );
       }
     } else {
-      // No backend is wired up at BASE_URL yet: dev servers (and most static
-      // hosts) answer unknown paths like `/api/...` with their own index.html
-      // (200 OK, text/html) instead of a 404. Treating that HTML as data used
-      // to silently get passed on to pages expecting arrays/objects, which
-      // then crashed while rendering (e.g. `html.map is not a function`) and
-      // blanked the whole app. Surface it as a normal API error instead.
       throw new ApiError(
         response.ok
-          ? 'No API server found at this address — got an HTML page instead of JSON. Set VITE_API_BASE_URL to your backend URL.'
+          ? "No API server found at this address — got HTML instead of JSON."
           : `Request failed (${response.status})`,
         response.status,
         text
-      )
+      );
     }
   }
 
   if (!response.ok) {
-    const message = (payload && payload.message) || `Request failed (${response.status})`
-    throw new ApiError(message, response.status, payload)
+    if (response.status === 401 && !cleanPath.startsWith("/auth/login")) {
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("learnloop_user");
+    }
+    const message = (payload && payload.message) || `Request failed (${response.status})`;
+    throw new ApiError(message, response.status, payload);
   }
 
-  return payload
+  if (
+    unwrap &&
+    payload &&
+    typeof payload === "object" &&
+    "success" in payload &&
+    "data" in payload
+  ) {
+    return payload.data;
+  }
+
+  return payload;
 }
 
 export const apiClient = {
-  get: (path, options) => request(path, { ...options, method: 'GET' }),
-  post: (path, body, options) => request(path, { ...options, method: 'POST', body }),
-  patch: (path, body, options) => request(path, { ...options, method: 'PATCH', body }),
-  put: (path, body, options) => request(path, { ...options, method: 'PUT', body }),
-  delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
-}
+  get: (path, options) => request(path, { ...options, method: "GET" }),
+  post: (path, body, options) => request(path, { ...options, method: "POST", body }),
+  patch: (path, body, options) => request(path, { ...options, method: "PATCH", body }),
+  put: (path, body, options) => request(path, { ...options, method: "PUT", body }),
+  delete: (path, options) => request(path, { ...options, method: "DELETE" }),
+};

@@ -8,7 +8,7 @@ import { Table } from '../../components/ui/Table'
 import { useApi } from '../../hooks/useApi'
 import { subjectsService } from '../../services/subjectsService'
 
-const emptyForm = { name: '' }
+const emptyForm = { name: '', code: '', description: '', category: 'Core', status: 'active' }
 
 export default function SubjectManagementPage() {
   const [modalOpen, setModalOpen] = useState(false)
@@ -22,6 +22,7 @@ export default function SubjectManagementPage() {
   function validate() {
     const next = {}
     if (!form.name.trim()) next.name = 'Subject name is required.'
+    if (!form.code.trim()) next.code = 'Subject code is required.'
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -31,7 +32,13 @@ export default function SubjectManagementPage() {
     setSaving(true)
     setSaveError(null)
     try {
-      await subjectsService.create(form)
+      await subjectsService.create({
+        name: form.name.trim(),
+        code: form.code.trim().toUpperCase(),
+        description: form.description.trim() || undefined,
+        category: form.category.trim() || 'Core',
+        status: form.status || 'active',
+      })
       setModalOpen(false)
       setForm(emptyForm)
       refetch()
@@ -59,11 +66,14 @@ export default function SubjectManagementPage() {
           {status === 'error' && <ErrorState message={error.message} onRetry={refetch} />}
           {isEmpty && <EmptyState title="No subjects yet" description="Create the first subject to get started." />}
           {status === 'success' && !isEmpty && (
-            <Table columns={['Subject', 'Topics']}>
+            <Table columns={['Subject', 'Code', 'Category', 'Status', 'Topics']}>
               {data.map((s) => (
                 <tr key={s.id}>
                   <td className="px-3 py-2 font-medium">{s.name}</td>
-                  <td className="px-3 py-2 tabular-nums">{s.topicCount ?? '—'}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-slate-600">{s.code}</td>
+                  <td className="px-3 py-2">{s.category || 'Core'}</td>
+                  <td className="px-3 py-2 capitalize">{s.status || 'active'}</td>
+                  <td className="px-3 py-2 tabular-nums">{s.topics_count ?? 0}</td>
                 </tr>
               ))}
             </Table>
@@ -86,10 +96,53 @@ export default function SubjectManagementPage() {
           </>
         }
       >
-        <FormField label="Subject name" htmlFor="subjectName" error={errors.name} required>
-          <TextInput id="subjectName" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <FormField label="Subject name" htmlFor="subjectName" error={errors.name} required>
+            <TextInput
+              id="subjectName"
+              placeholder="e.g. Physics"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </FormField>
+          <FormField label="Subject code" htmlFor="subjectCode" error={errors.code} required>
+            <TextInput
+              id="subjectCode"
+              placeholder="e.g. PHY-9"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+            />
+          </FormField>
+        </div>
+        <FormField label="Description" htmlFor="subjectDescription" hint="Optional">
+          <TextInput
+            id="subjectDescription"
+            placeholder="Brief syllabus summary"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
         </FormField>
-        {saveError && <p className="text-sm text-clay-700">{saveError}</p>}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <FormField label="Category" htmlFor="subjectCategory">
+            <TextInput
+              id="subjectCategory"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+            />
+          </FormField>
+          <FormField label="Status" htmlFor="subjectStatus">
+            <select
+              id="subjectStatus"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value })}
+            >
+              <option value="active">Active</option>
+              <option value="planned">Planned</option>
+            </select>
+          </FormField>
+        </div>
+        {saveError && <p className="text-sm text-rose-600">{saveError}</p>}
       </Modal>
     </>
   )

@@ -27,7 +27,7 @@ const TEACHER_LINKS = [
   {
     to: '/teacher/my-class',
     label: 'My Class (Class Teacher)',
-    badge: '9-A',
+    badge: 'Homeroom',
     icon: (
       <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -98,6 +98,7 @@ const ADMIN_LINKS = [
   { to: '/admin/students', label: 'Students' },
   { to: '/admin/assignments', label: 'Teacher assignments' },
   { to: '/admin/enrollment', label: 'Student enrollment' },
+  { to: '/admin/audit-logs', label: 'Audit & System Status' },
 ]
 
 function NavGroup({ heading, links, onNavigate }) {
@@ -139,8 +140,8 @@ function SidebarLinks({ role, onNavigate }) {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
 
-  function handleSignOut() {
-    signOut()
+  async function handleSignOut() {
+    await signOut()
     navigate('/login')
   }
 
@@ -153,7 +154,7 @@ function SidebarLinks({ role, onNavigate }) {
           <div className="mt-1.5 flex items-center gap-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <p className="text-[11px] font-medium text-slate-400">
-              {role === 'admin' ? 'Administration Console' : 'Teacher Workspace · Class 9'}
+              {role === 'admin' ? 'Administration Console' : 'Teacher Workspace'}
             </p>
           </div>
         </div>
@@ -179,11 +180,13 @@ function SidebarLinks({ role, onNavigate }) {
           </p>
         </div>
 
-        {/* Teacher Account Info */}
+        {/* Account Info */}
         <div className="flex items-center justify-between gap-2 px-1">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold text-slate-900 truncate">{user?.name || 'Alex Rivera'}</p>
-            <p className="text-[10px] text-slate-400 truncate font-mono">{user?.email || 'teacher@demo.com'}</p>
+            <p className="text-xs font-bold text-slate-900 truncate">
+              {user?.name || (role === 'admin' ? 'Administrator' : 'Educator')}
+            </p>
+            <p className="text-[10px] text-slate-400 truncate font-mono">{user?.email || ''}</p>
           </div>
           <button
             type="button"

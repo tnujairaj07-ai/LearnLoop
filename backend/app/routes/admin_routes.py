@@ -1,4 +1,5 @@
 from flask import Blueprint, request
+from flask_jwt_extended import get_jwt_identity
 
 from app.services.academic_admin_service import AcademicAdminService
 from app.utils.decorators import admin_required, teacher_required
@@ -39,6 +40,23 @@ def get_class(class_id):
         return success_response(data={"class": classroom})
     except LookupError as e:
         return error_response(str(e), status_code=404)
+
+
+@admin_bp.route("/classes/<int:class_id>", methods=["PUT", "PATCH"])
+@admin_required
+def update_class(class_id):
+    """Update class metadata or homeroom teacher assignment (admin only)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+
+    try:
+        classroom = AcademicAdminService.update_class(class_id, data)
+        return success_response(data={"class": classroom}, message="Class updated successfully.")
+    except LookupError as e:
+        return error_response(str(e), status_code=404)
+    except ValueError as e:
+        return error_response(str(e), status_code=400)
 
 
 @admin_bp.route("/classes/<int:class_id>/enrollments", methods=["POST"])
@@ -139,4 +157,72 @@ def privacy_purge_user(user_id):
     return success_response(
         message="User PII successfully purged and anonymized in compliance with retention policy."
     )
+
+
+@admin_bp.route("/teachers", methods=["GET"])
+@admin_required
+def list_teachers():
+    """List all teacher accounts with class assignment counts (admin only)."""
+    teachers = AcademicAdminService.list_teachers()
+    return success_response(data={"teachers": teachers})
+
+
+@admin_bp.route("/teachers", methods=["POST"])
+@admin_required
+def create_teacher():
+    """Create a new teacher account cleanly (admin only)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+
+    admin_id = int(get_jwt_identity())
+    try:
+        teacher = AcademicAdminService.create_user_by_admin(data, role_name="teacher", actor_id=admin_id)
+        return success_response(
+            data={"teacher": teacher}, message="Teacher created successfully.", status_code=201
+        )
+    except FileExistsError as e:
+        return error_response(str(e), status_code=409)
+    except LookupError as e:
+        return error_response(str(e), status_code=404)
+    except ValueError as e:
+        return error_response(str(e), status_code=400)
+
+
+@admin_bp.route("/students", methods=["GET"])
+@admin_required
+def list_students():
+    """List all student accounts with active class enrollments (admin only)."""
+    students = AcademicAdminService.list_students()
+    return success_response(data={"students": students})
+
+
+@admin_bp.route("/students", methods=["POST"])
+@admin_required
+def create_student():
+    """Create a new zero-state student account, optionally enrolling into a class (admin only)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+
+    admin_id = int(get_jwt_identity())
+    try:
+        student = AcademicAdminService.create_user_by_admin(data, role_name="student", actor_id=admin_id)
+        return success_response(
+            data={"student": student}, message="Student created successfully.", status_code=201
+        )
+    except FileExistsError as e:
+        return error_response(str(e), status_code=409)
+    except LookupError as e:
+        return error_response(str(e), status_code=404)
+    except ValueError as e:
+        return error_response(str(e), status_code=400)
+
+
+@admin_bp.route("/system-status", methods=["GET"])
+@admin_required
+def get_system_status():
+    """Inspect live platform database metrics, role counts, and system health markers (admin only)."""
+    data = AcademicAdminService.get_system_status()
+    return success_response(data=data)
 

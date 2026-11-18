@@ -99,3 +99,21 @@ textarea:focus-visible,
     @apply text-ink-light hover:bg-surface-sunken;
   }
 }
+
+@media print {
+  aside,
+  header,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  body,
+  main,
+  #root {
+    background: #ffffff !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+}

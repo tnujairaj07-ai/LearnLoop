@@ -1,10 +1,16 @@
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+
+function defaultHomeFor(role) {
+  if (role === "admin") return "/admin/classes";
+  if (role === "teacher") return "/teacher";
+  return "/dashboard";
+}
 
 /**
  * Gate for any authenticated route. Pass `allow` with the list of roles
  * permitted (e.g. `allow={["student"]}` or `allow={["teacher", "admin"]}`).
- * Omit `allow` to require only that someone is signed in.
+ * Renders either explicit `children` or nested `<Outlet />`.
  */
 export default function ProtectedRoute({ allow, children }) {
   const { isAuthenticated, role } = useAuth();
@@ -14,7 +20,7 @@ export default function ProtectedRoute({ allow, children }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   if (allow && !allow.includes(role)) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={defaultHomeFor(role)} replace />;
   }
-  return children;
+  return children ?? <Outlet />;
 }

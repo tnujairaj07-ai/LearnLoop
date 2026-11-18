@@ -1,8 +1,9 @@
 from flask import Blueprint, request
-from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import get_jwt, get_jwt_identity
 
 from app.services.analytics_service import AnalyticsService
 from app.services.intervention_service import InterventionService
+from app.services.teacher_portal_service import TeacherPortalService
 from app.utils.decorators import teacher_required
 from app.utils.responses import error_response, success_response
 
@@ -12,6 +13,8 @@ teacher_bp = Blueprint("teacher", __name__, url_prefix="/api/teacher")
 def _handle_exception(e):
     if isinstance(e, PermissionError):
         return error_response(str(e), status_code=403)
+    if isinstance(e, LookupError):
+        return error_response(str(e), status_code=404)
     if isinstance(e, ValueError):
         status_code = 404 if "not found" in str(e).lower() else 400
         return error_response(str(e), status_code=status_code)
@@ -226,5 +229,186 @@ def get_intervention_outcomes(intervention_id):
     try:
         data = InterventionService.get_intervention_outcomes(teacher_id, intervention_id)
         return success_response(data=data)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+# -------------------------------------------------------------
+# Teacher Live Portal Cockpit, Activity, Homeroom & Profiles
+# -------------------------------------------------------------
+@teacher_bp.route("/dashboard", methods=["GET"])
+@teacher_required
+def get_teacher_dashboard():
+    """Retrieve live weekly engagement curve, hourly sessions, top gainers, consistency, and alerts."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    class_id = request.args.get("class_id", type=int)
+    try:
+        data = TeacherPortalService.get_teacher_dashboard(
+            actor_id=actor_id, actor_role=actor_role, class_id=class_id
+        )
+        return success_response(data=data)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/activity", methods=["GET"])
+@teacher_required
+def get_realtime_activity():
+    """Retrieve live student activity, attendance, study durations, and recent drill scores for a class."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    class_id = request.args.get("class_id", type=int)
+    date_str = request.args.get("date")
+    day_offset = request.args.get("day_offset", default=0, type=int)
+    try:
+        data = TeacherPortalService.get_realtime_activity(
+            actor_id=actor_id,
+            actor_role=actor_role,
+            class_id=class_id,
+            target_date_str=date_str,
+            day_offset=day_offset,
+        )
+        return success_response(data=data)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/students/<int:student_id>/remind", methods=["POST"])
+@teacher_required
+def remind_student(student_id):
+    """Send an actionable study reminder / nudge to a student."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+    try:
+        data = TeacherPortalService.send_student_reminder(
+            actor_id=actor_id, actor_role=actor_role, student_id=student_id, payload=payload
+        )
+        return success_response(data={"reminder": data}, message="Reminder sent successfully.", status_code=201)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/my-class", methods=["GET"])
+@teacher_required
+def get_my_class():
+    """Retrieve teacher's homeroom class, active announcement, and multi-subject student roster."""
+    actor_id = int(get_jwt_identity())
+    try:
+        data = TeacherPortalService.get_my_class(actor_id)
+        return success_response(data=data)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/classes/<int:class_id>/announcement", methods=["GET"])
+@teacher_required
+def get_class_announcement(class_id):
+    """Retrieve the active announcement banner for a class."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    try:
+        data = TeacherPortalService.get_class_announcement(actor_id, actor_role, class_id)
+        return success_response(data=data)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/classes/<int:class_id>/announcement", methods=["PUT"])
+@teacher_required
+def update_class_announcement(class_id):
+    """Create or update the active class announcement banner."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+    try:
+        data = TeacherPortalService.upsert_class_announcement(
+            actor_id=actor_id,
+            actor_role=actor_role,
+            class_id=class_id,
+            message=payload.get("message"),
+        )
+        return success_response(data={"announcement": data}, message="Class announcement saved.")
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/classes/<int:class_id>/attendance", methods=["POST"])
+@teacher_required
+def record_attendance(class_id):
+    """Record or update daily attendance entries for enrolled students in a class."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+    try:
+        data = TeacherPortalService.record_class_attendance(actor_id, actor_role, class_id, payload)
+        return success_response(data=data, message="Attendance recorded successfully.", status_code=201)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/classes/<int:class_id>/topics/<int:topic_id>/analytics", methods=["GET"])
+@teacher_required
+def get_topic_analytics(class_id, topic_id):
+    """Retrieve band distribution, topic error patterns, and question breakdown for a class & topic."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    try:
+        data = TeacherPortalService.get_topic_analytics(
+            actor_id=actor_id, actor_role=actor_role, class_id=class_id, topic_id=topic_id
+        )
+        return success_response(data=data)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/students/<int:student_id>/profile", methods=["GET"])
+@teacher_required
+def get_student_profile(student_id):
+    """Retrieve deep-dive multi-subject profile, calendar, activities, notes, and interventions."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    try:
+        data = TeacherPortalService.get_student_profile(actor_id, actor_role, student_id)
+        return success_response(data=data)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/students/<int:student_id>/notes", methods=["POST"])
+@teacher_required
+def add_student_note(student_id):
+    """Create a teacher feedback note on a student's profile."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+    try:
+        note = TeacherPortalService.add_student_note(actor_id, actor_role, student_id, payload)
+        return success_response(data={"note": note}, message="Feedback note saved.", status_code=201)
+    except Exception as e:
+        return _handle_exception(e)
+
+
+@teacher_bp.route("/students/<int:student_id>/assign-practice", methods=["POST"])
+@teacher_required
+def assign_practice_to_student(student_id):
+    """Assign targeted practice as a persisted student task and reminder."""
+    actor_id = int(get_jwt_identity())
+    actor_role = get_jwt().get("role", "teacher")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return error_response("Request body must be a valid JSON object.", status_code=400)
+    try:
+        result = TeacherPortalService.assign_student_practice(actor_id, actor_role, student_id, payload)
+        return success_response(data=result, message="Targeted practice assigned.", status_code=201)
     except Exception as e:
         return _handle_exception(e)

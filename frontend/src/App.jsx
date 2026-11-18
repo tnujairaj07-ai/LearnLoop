@@ -13,6 +13,8 @@ import TopicDetail from "./pages/student/TopicDetail";
 import Quiz from "./pages/student/Quiz";
 import Analysis from "./pages/student/Analysis";
 import ReportCard from "./pages/student/ReportCard";
+import WeeklyProgress from "./pages/student/WeeklyProgress";
+import PracticeHubPage from "./pages/student/PracticeHubPage";
 
 // Teacher
 import TeacherDashboardPage from "./pages/teacher/TeacherDashboardPage";
@@ -36,6 +38,7 @@ import TeacherManagementPage from "./pages/admin/TeacherManagementPage";
 import StudentManagementPage from "./pages/admin/StudentManagementPage";
 import TeacherAssignmentPage from "./pages/admin/TeacherAssignmentPage";
 import StudentEnrollmentPage from "./pages/admin/StudentEnrollmentPage";
+import AuditLogPage from "./pages/admin/AuditLogPage";
 
 export default function App() {
   return (
@@ -93,6 +96,38 @@ export default function App() {
         }
       />
       <Route
+        path="/topics/:topicId"
+        element={
+          <ProtectedRoute allow={["student"]}>
+            <TopicDetail />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/practice"
+        element={
+          <ProtectedRoute allow={["student"]}>
+            <PracticeHubPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/practice/:subjectId"
+        element={
+          <ProtectedRoute allow={["student"]}>
+            <PracticeHubPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/practice/:subjectId/:chapterId"
+        element={
+          <ProtectedRoute allow={["student"]}>
+            <PracticeHubPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/quiz/:topicId"
         element={
           <ProtectedRoute allow={["student"]}>
@@ -115,6 +150,18 @@ export default function App() {
             <ReportCard />
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/weekly-progress"
+        element={
+          <ProtectedRoute allow={["student"]}>
+            <WeeklyProgress />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/weekly-progress"
+        element={<Navigate to="/weekly-progress" replace />}
       />
 
       {/* ------------- Teacher / Admin ------------- */}
@@ -141,13 +188,16 @@ export default function App() {
         <Route path="/teacher/questions" element={<QuestionManagementPage />} />
         <Route path="/teacher/reports" element={<ReportGeneratorPage />} />
 
-        {/* Admin */}
-        <Route path="/admin/classes" element={<ClassManagementPage />} />
-        <Route path="/admin/subjects" element={<SubjectManagementPage />} />
-        <Route path="/admin/teachers" element={<TeacherManagementPage />} />
-        <Route path="/admin/students" element={<StudentManagementPage />} />
-        <Route path="/admin/assignments" element={<TeacherAssignmentPage />} />
-        <Route path="/admin/enrollment" element={<StudentEnrollmentPage />} />
+        {/* Admin (strictly restricted to admin role) */}
+        <Route element={<ProtectedRoute allow={["admin"]} />}>
+          <Route path="/admin/classes" element={<ClassManagementPage />} />
+          <Route path="/admin/subjects" element={<SubjectManagementPage />} />
+          <Route path="/admin/teachers" element={<TeacherManagementPage />} />
+          <Route path="/admin/students" element={<StudentManagementPage />} />
+          <Route path="/admin/assignments" element={<TeacherAssignmentPage />} />
+          <Route path="/admin/enrollment" element={<StudentEnrollmentPage />} />
+          <Route path="/admin/audit-logs" element={<AuditLogPage />} />
+        </Route>
       </Route>
 
       <Route path="/" element={<Navigate to="/login" replace />} />
