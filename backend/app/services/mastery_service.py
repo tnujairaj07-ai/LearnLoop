@@ -31,38 +31,15 @@ class MasteryService:
             return "Secure"
 
     @staticmethod
-    def calculate_topic_mastery(student_id, topic_id):
-        """
-        Calculates explainable topic mastery for a student across all completed attempts.
-        Formula:
-            mastery = 0.40 * accuracy + 0.20 * difficulty_comp + 0.20 * recency_comp + 0.20 * trend_comp
-        All components are normalized between 0.0 and 100.0.
-        """
-        topic = db.session.get(Topic, topic_id)
-        if not topic:
-            raise LookupError(f"Topic with ID {topic_id} not found.")
-
-        # Query all answers for this student for questions belonging to this topic in submitted/scored attempts
-        answers = (
-            db.session.query(Answer, Question, Attempt)
-            .join(Question, Answer.question_id == Question.id)
-            .join(Attempt, Answer.attempt_id == Attempt.id)
-            .filter(
-                Attempt.student_id == student_id,
-                Attempt.status.in_(["submitted", "scored"]),
-                Question.topic_id == topic_id,
-            )
-            .order_by(Attempt.submitted_at.asc(), Answer.id.asc())
-            .all()
-        )
-
+    def _compute_mastery_from_answers(student_id, topic_id, topic_title, answers, now=None):
+        """Pure helper computing the 4-component mastery breakdown from ordered (Answer, Question, Attempt) rows."""
+        now = now or datetime.utcnow()
         evidence_count = len(answers)
         if evidence_count == 0:
-            # Baseline unassessed state
             return {
                 "student_id": student_id,
                 "topic_id": topic_id,
-                "topic_title": topic.title,
+                "topic_title": topic_title,
                 "mastery_score": 0.0,
                 "accuracy_component": 0.0,
                 "difficulty_component": 0.0,
@@ -71,10 +48,9 @@ class MasteryService:
                 "evidence_count": 0,
                 "band": "Needs strong support",
                 "model_version": MasteryService.MODEL_VERSION,
-                "calculated_at": datetime.utcnow().isoformat(),
+                "calculated_at": now.isoformat(),
             }
 
-        now = datetime.utcnow()
         correct_count = 0
         total_difficulty_weight = 0.0
         earned_difficulty_weight = 0.0
@@ -156,7 +132,7 @@ class MasteryService:
         return {
             "student_id": student_id,
             "topic_id": topic_id,
-            "topic_title": topic.title,
+            "topic_title": topic_title,
             "mastery_score": mastery_score,
             "accuracy_component": accuracy_comp,
             "difficulty_component": difficulty_comp,
@@ -169,6 +145,54 @@ class MasteryService:
             "model_version": MasteryService.MODEL_VERSION,
             "calculated_at": now.isoformat(),
         }
+
+    @staticmethod
+    def _serialize_mastery_record(record, topic_title=None):
+        """Serialize a persisted MasteryRecord row into the canonical mastery dictionary."""
+        return {
+            "record_id": record.id,
+            "student_id": record.student_id,
+            "topic_id": record.topic_id,
+            "topic_title": topic_title if topic_title is not None else (record.topic.title if record.topic else None),
+            "mastery_score": record.mastery_score,
+            "accuracy_component": record.accuracy_component,
+            "difficulty_component": record.difficulty_component,
+            "recency_component": record.recency_component,
+            "trend_component": record.trend_component,
+            "evidence_count": record.evidence_count,
+            "band": MasteryService.get_mastery_band(record.mastery_score),
+            "model_version": record.model_version,
+            "calculated_at": record.calculated_at.isoformat(),
+        }
+
+    @staticmethod
+    def calculate_topic_mastery(student_id, topic_id):
+        """
+        Calculates explainable topic mastery for a student across all completed attempts.
+        Formula:
+            mastery = 0.40 * accuracy + 0.20 * difficulty_comp + 0.20 * recency_comp + 0.20 * trend_comp
+        All components are normalized between 0.0 and 100.0.
+        """
+        topic = db.session.get(Topic, topic_id)
+        if not topic:
+            raise LookupError(f"Topic with ID {topic_id} not found.")
+
+        # Query all answers for this student for questions belonging to this topic in submitted/scored attempts
+        answers = (
+            db.session.query(Answer, Question, Attempt)
+            .join(Question, Answer.question_id == Question.id)
+            .join(Attempt, Answer.attempt_id == Attempt.id)
+            .filter(
+                Attempt.student_id == student_id,
+                Attempt.status.in_(["submitted", "scored"]),
+                Question.topic_id == topic_id,
+            )
+            .order_by(Attempt.submitted_at.asc(), Answer.id.asc())
+            .all()
+        )
+        return MasteryService._compute_mastery_from_answers(
+            student_id, topic_id, topic.title, answers
+        )
 
     @staticmethod
     def calculate_and_persist_mastery(student_id, topic_id):
@@ -206,19 +230,82 @@ class MasteryService:
             .first()
         )
         if record:
-            return {
-                "record_id": record.id,
-                "student_id": record.student_id,
-                "topic_id": record.topic_id,
-                "topic_title": record.topic.title if record.topic else None,
-                "mastery_score": record.mastery_score,
-                "accuracy_component": record.accuracy_component,
-                "difficulty_component": record.difficulty_component,
-                "recency_component": record.recency_component,
-                "trend_component": record.trend_component,
-                "evidence_count": record.evidence_count,
-                "band": MasteryService.get_mastery_band(record.mastery_score),
-                "model_version": record.model_version,
-                "calculated_at": record.calculated_at.isoformat(),
-            }
+            return MasteryService._serialize_mastery_record(record)
         return MasteryService.calculate_topic_mastery(student_id, topic_id)
+
+    @staticmethod
+    def get_latest_mastery_map(student_ids, topic_ids=None, topics_by_id=None):
+        """Batch-fetch latest mastery snapshots keyed by (student_id, topic_id) in O(1) queries."""
+        sids = list(dict.fromkeys(student_ids or []))
+        if not sids:
+            return {}
+
+        if topics_by_id is None:
+            if topic_ids is None:
+                topic_objs = Topic.query.all()
+            else:
+                tids_arg = list(dict.fromkeys(topic_ids))
+                if not tids_arg:
+                    return {}
+                topic_objs = Topic.query.filter(Topic.id.in_(tids_arg)).all()
+            topics_by_id = {t.id: t for t in topic_objs}
+
+        tids = list(dict.fromkeys(topic_ids if topic_ids is not None else topics_by_id.keys()))
+        if not tids:
+            return {}
+
+        result = {}
+        records = (
+            MasteryRecord.query.filter(
+                MasteryRecord.student_id.in_(sids),
+                MasteryRecord.topic_id.in_(tids),
+            )
+            .order_by(MasteryRecord.calculated_at.desc(), MasteryRecord.id.desc())
+            .all()
+        )
+        for rec in records:
+            key = (rec.student_id, rec.topic_id)
+            if key not in result:
+                t_obj = topics_by_id.get(rec.topic_id)
+                result[key] = MasteryService._serialize_mastery_record(
+                    rec, topic_title=t_obj.title if t_obj else None
+                )
+
+        missing_pairs = [
+            (sid, tid)
+            for sid in sids
+            for tid in tids
+            if (sid, tid) not in result
+        ]
+        if missing_pairs:
+            missing_sids = list({sid for sid, _ in missing_pairs})
+            missing_tids = list({tid for _, tid in missing_pairs})
+            rows = (
+                db.session.query(Answer, Question, Attempt)
+                .join(Question, Answer.question_id == Question.id)
+                .join(Attempt, Answer.attempt_id == Attempt.id)
+                .filter(
+                    Attempt.student_id.in_(missing_sids),
+                    Attempt.status.in_(["submitted", "scored"]),
+                    Question.topic_id.in_(missing_tids),
+                )
+                .order_by(Attempt.submitted_at.asc(), Answer.id.asc())
+                .all()
+            )
+            grouped_answers = {}
+            for ans, q, att in rows:
+                grouped_answers.setdefault((att.student_id, q.topic_id), []).append((ans, q, att))
+
+            now = datetime.utcnow()
+            for sid, tid in missing_pairs:
+                t_obj = topics_by_id.get(tid)
+                t_title = t_obj.title if t_obj else None
+                result[(sid, tid)] = MasteryService._compute_mastery_from_answers(
+                    sid,
+                    tid,
+                    t_title,
+                    grouped_answers.get((sid, tid), []),
+                    now=now,
+                )
+
+        return result

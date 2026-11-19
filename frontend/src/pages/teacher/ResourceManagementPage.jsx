@@ -5,6 +5,7 @@ import { useApi } from '../../hooks/useApi'
 import { subjectsService } from '../../services/subjectsService'
 import { topicsService } from '../../services/topicsService'
 import { resourcesService } from '../../services/resourcesService'
+import { pickDefaultSubject } from '../../lib/teacherHelpers'
 
 const emptyForm = {
   resource_type: 'video',
@@ -63,11 +64,12 @@ export default function ResourceManagementPage() {
 
   useEffect(() => {
     if (!subjectId && subjects.length > 0) {
-      setSubjectId(String(subjects[0].id))
+      const defSubj = pickDefaultSubject(subjects)
+      if (defSubj) setSubjectId(String(defSubj.id))
     }
   }, [subjects, subjectId])
 
-  const activeSubjectId = subjectId ? Number(subjectId) : subjects[0]?.id || null
+  const activeSubjectId = subjectId ? Number(subjectId) : pickDefaultSubject(subjects)?.id || null
 
   const topicsApi = useApi(
     () => topicsService.listBySubject(activeSubjectId),
@@ -237,7 +239,7 @@ export default function ResourceManagementPage() {
               >
                 {subjects.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {s.name} ({s.code})
                   </option>
                 ))}
               </select>

@@ -6,6 +6,7 @@ import { useApi } from '../../hooks/useApi'
 import { subjectsService } from '../../services/subjectsService'
 import { topicsService } from '../../services/topicsService'
 import { questionsService } from '../../services/questionsService'
+import { pickDefaultSubject } from '../../lib/teacherHelpers'
 
 const DIFFICULTY_META = {
   1: { label: 'Easy', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
@@ -52,11 +53,12 @@ export default function QuestionManagementPage() {
 
   useEffect(() => {
     if (!subjectId && subjects.length > 0) {
-      setSubjectId(String(subjects[0].id))
+      const defSubj = pickDefaultSubject(subjects)
+      if (defSubj) setSubjectId(String(defSubj.id))
     }
   }, [subjects, subjectId])
 
-  const activeSubjectId = subjectId ? Number(subjectId) : subjects[0]?.id || null
+  const activeSubjectId = subjectId ? Number(subjectId) : pickDefaultSubject(subjects)?.id || null
 
   const topicsApi = useApi(
     () => topicsService.listBySubject(activeSubjectId),
@@ -298,7 +300,7 @@ export default function QuestionManagementPage() {
               >
                 {subjects.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {s.name} ({s.code})
                   </option>
                 ))}
               </select>

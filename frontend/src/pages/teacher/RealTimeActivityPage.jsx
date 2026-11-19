@@ -6,6 +6,7 @@ import { useApi } from '../../hooks/useApi'
 import { analyticsService } from '../../services/analyticsService'
 import { classesService } from '../../services/classesService'
 import { studentsService } from '../../services/studentsService'
+import { groupTeacherClasses } from '../../lib/teacherHelpers'
 
 const DAY_OPTIONS = [
   { id: 'today', offset: 0, label: 'Today (Live)' },
@@ -24,6 +25,7 @@ export default function RealTimeActivityPage() {
 
   const classesApi = useApi(() => classesService.listForTeacher(), [])
   const assignedClasses = useMemo(() => classesApi.data || [], [classesApi.data])
+  const uniqueClasses = useMemo(() => groupTeacherClasses(assignedClasses), [assignedClasses])
   const effectiveClassId = selectedClassId ? Number(selectedClassId) : undefined
 
   const activityApi = useApi(
@@ -154,9 +156,9 @@ export default function RealTimeActivityPage() {
                     ? `Default (${assignedClasses[0].class_name})`
                     : 'No assigned classes'}
                 </option>
-                {assignedClasses.map((cls) => (
-                  <option key={`${cls.class_id}-${cls.subject_id || 'all'}`} value={cls.class_id}>
-                    {cls.class_name} ({cls.subject_name || 'Class'})
+                {uniqueClasses.map((cls) => (
+                  <option key={cls.class_id} value={cls.class_id}>
+                    {cls.class_name} ({cls.subjects.join(', ') || 'Class'})
                   </option>
                 ))}
               </select>

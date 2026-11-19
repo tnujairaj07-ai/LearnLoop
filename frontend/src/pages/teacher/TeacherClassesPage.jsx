@@ -12,12 +12,16 @@ export default function TeacherClassesPage() {
   const classesApi = useApi(async () => {
     const baseClasses = await classesService.listForTeacher()
     if (!baseClasses || baseClasses.length === 0) return []
-    const dashboards = await Promise.all(
-      baseClasses.map((cls) => classesService.getDashboard(cls.class_id).catch(() => null))
+    const uniqueIds = Array.from(new Set(baseClasses.map((cls) => cls.class_id).filter(Boolean)))
+    const dashboardList = await Promise.all(
+      uniqueIds.map((cid) => classesService.getDashboard(cid).catch(() => null))
     )
-    return baseClasses.map((cls, idx) => ({
+    const dashboardByClassId = Object.fromEntries(
+      uniqueIds.map((cid, idx) => [cid, dashboardList[idx] || null])
+    )
+    return baseClasses.map((cls) => ({
       ...cls,
-      dashboard: dashboards[idx] || null,
+      dashboard: dashboardByClassId[cls.class_id] || null,
     }))
   }, [])
 

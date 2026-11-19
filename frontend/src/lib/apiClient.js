@@ -14,7 +14,10 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { method = "GET", body, params, signal, unwrap = true } = {}) {
+const inflightGets = new Map();
+let mutationEpoch = 0;
+
+async function executeRequest(path, { method = "GET", body, params, signal, unwrap = true } = {}) {
   let query = "";
   if (params) {
     const usp = new URLSearchParams();
@@ -101,6 +104,51 @@ async function request(path, { method = "GET", body, params, signal, unwrap = tr
   }
 
   return payload;
+}
+
+function request(path, options = {}) {
+  const { method = "GET", params, signal, unwrap = true, dedupe = true } = options;
+  if (method !== "GET") {
+    mutationEpoch += 1;
+    inflightGets.clear();
+    return executeRequest(path, options);
+  }
+
+  if (!dedupe || signal) {
+    return executeRequest(path, options);
+  }
+
+  let query = "";
+  if (params) {
+    const usp = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        usp.set(key, String(value));
+      }
+    });
+    const qs = usp.toString();
+    if (qs) query = `?${qs}`;
+  }
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const cleanPath = normalizedPath.startsWith("/api/")
+    ? normalizedPath.slice(4)
+    : normalizedPath === "/api"
+    ? ""
+    : normalizedPath;
+  const token = localStorage.getItem("authToken") || "";
+  const dedupeKey = `${BASE_URL}${cleanPath}${query}::${token}::${unwrap ? "u" : "r"}::${mutationEpoch}`;
+
+  if (inflightGets.has(dedupeKey)) {
+    return inflightGets.get(dedupeKey);
+  }
+
+  const promise = executeRequest(path, options).finally(() => {
+    if (inflightGets.get(dedupeKey) === promise) {
+      inflightGets.delete(dedupeKey);
+    }
+  });
+  inflightGets.set(dedupeKey, promise);
+  return promise;
 }
 
 export const apiClient = {

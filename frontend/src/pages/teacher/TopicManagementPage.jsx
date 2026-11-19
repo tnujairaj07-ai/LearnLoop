@@ -6,6 +6,7 @@ import { useApi } from '../../hooks/useApi'
 import { classesService } from '../../services/classesService'
 import { subjectsService } from '../../services/subjectsService'
 import { topicsService } from '../../services/topicsService'
+import { pickDefaultSubject } from '../../lib/teacherHelpers'
 
 const emptyForm = {
   title: '',
@@ -39,11 +40,12 @@ export default function TopicManagementPage() {
 
   useEffect(() => {
     if (!subjectId && subjects.length > 0) {
-      setSubjectId(String(subjects[0].id))
+      const defSubj = pickDefaultSubject(subjects)
+      if (defSubj) setSubjectId(String(defSubj.id))
     }
   }, [subjects, subjectId])
 
-  const activeSubjectId = subjectId ? Number(subjectId) : subjects[0]?.id || null
+  const activeSubjectId = subjectId ? Number(subjectId) : pickDefaultSubject(subjects)?.id || null
   const activeSubjectObj = subjects.find((s) => s.id === activeSubjectId) || null
 
   const topicsApi = useApi(

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 from flask import Flask
 
@@ -41,15 +42,21 @@ def create_app(config_name=None):
     if frontend_env == "*" or not frontend_env:
         cors_origins = "*"
     else:
-        cors_origins = [url.strip() for url in frontend_env.split(",") if url.strip()]
-        for dev_origin in (
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:5174",
-            "http://127.0.0.1:5174",
-        ):
-            if dev_origin not in cors_origins:
-                cors_origins.append(dev_origin)
+        cors_origins = [
+            url.strip().rstrip("/") for url in frontend_env.split(",") if url.strip().rstrip("/")
+        ]
+        if selected_config != "production":
+            for dev_origin in (
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5174",
+                "http://localhost:5175",
+                "http://127.0.0.1:5175",
+                re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"),
+            ):
+                if dev_origin not in cors_origins:
+                    cors_origins.append(dev_origin)
 
     cors.init_app(
         app,

@@ -7,6 +7,7 @@ import { classesService } from '../../services/classesService'
 import { studentsService } from '../../services/studentsService'
 import { subjectsService } from '../../services/subjectsService'
 import { reportsService } from '../../services/reportsService'
+import { groupTeacherClasses, pickDefaultSubject } from '../../lib/teacherHelpers'
 
 function normalizeBandKey(category) {
   const c = (category || '').toLowerCase()
@@ -35,25 +36,27 @@ export default function ReportGeneratorPage() {
   const subjectsApi = useApi(() => subjectsService.listAll(), [])
 
   const assignedClasses = useMemo(() => classesApi.data || [], [classesApi.data])
+  const uniqueClasses = useMemo(() => groupTeacherClasses(assignedClasses), [assignedClasses])
   const subjects = useMemo(() => subjectsApi.data || [], [subjectsApi.data])
 
   useEffect(() => {
-    if (!classId && assignedClasses.length > 0) {
-      setClassId(String(assignedClasses[0].class_id))
-      if (assignedClasses[0].subject_id) {
-        setSubjectId(String(assignedClasses[0].subject_id))
+    if (!classId && uniqueClasses.length > 0) {
+      setClassId(String(uniqueClasses[0].class_id))
+      if (uniqueClasses[0].subject_id) {
+        setSubjectId(String(uniqueClasses[0].subject_id))
       }
     }
-  }, [assignedClasses, classId])
+  }, [uniqueClasses, classId])
 
   useEffect(() => {
     if (!subjectId && subjects.length > 0) {
-      setSubjectId(String(subjects[0].id))
+      const defSubj = pickDefaultSubject(subjects)
+      if (defSubj) setSubjectId(String(defSubj.id))
     }
   }, [subjects, subjectId])
 
-  const activeClassId = classId ? Number(classId) : assignedClasses[0]?.class_id || null
-  const activeSubjectId = subjectId ? Number(subjectId) : subjects[0]?.id || null
+  const activeClassId = classId ? Number(classId) : uniqueClasses[0]?.class_id || null
+  const activeSubjectId = subjectId ? Number(subjectId) : pickDefaultSubject(subjects)?.id || null
 
   const studentsApi = useApi(
     () => studentsService.listForClass(activeClassId),
@@ -230,9 +233,9 @@ export default function ReportGeneratorPage() {
                       if (matched?.subject_id) setSubjectId(String(matched.subject_id))
                     }}
                   >
-                    {assignedClasses.map((c) => (
-                      <option key={`${c.class_id}-${c.subject_id || 'all'}`} value={c.class_id}>
-                        {c.class_name} · {c.subject_name || 'Class'}
+                    {uniqueClasses.map((c) => (
+                      <option key={c.class_id} value={c.class_id}>
+                        {c.class_name} · {c.subjects.join(', ') || 'Class'}
                       </option>
                     ))}
                   </select>
@@ -555,19 +558,29 @@ export default function ReportGeneratorPage() {
                     <div>
                       <span className="text-slate-400 block">Enrolled Students</span>
                       <strong className="text-base text-slate-900">
-                        {compiledResult.report.payload.class_summary?.total_students ?? 0}
+                        {compiledResult.report.payload.class_profile?.total_students ??
+                          compiledResult.report.payload.class_summary?.total_students ??
+                          0}
                       </strong>
                     </div>
                     <div>
                       <span className="text-slate-400 block">Class Average Mastery</span>
                       <strong className="text-base text-blue-700">
-                        {compiledResult.report.payload.class_summary?.average_mastery ?? 0}%
+                        {Math.round(
+                          compiledResult.report.payload.class_summary?.average_topic_mastery ??
+                            compiledResult.report.payload.class_summary?.average_mastery ??
+                            0
+                        )}
+                        %
                       </strong>
                     </div>
                     <div>
-                      <span className="text-slate-400 block">Completed Assessments</span>
+                      <span className="text-slate-400 block">Average Accuracy</span>
                       <strong className="text-base text-slate-900">
-                        {compiledResult.report.payload.class_summary?.total_attempts ?? 0}
+                        {Math.round(
+                          compiledResult.report.payload.class_summary?.average_accuracy_percentage ?? 0
+                        )}
+                        %
                       </strong>
                     </div>
                     <div>

@@ -8,6 +8,8 @@ students and classes in accordance with explainable learning intelligence princi
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy.orm import joinedload
+
 from app.extensions import db
 from app.models.academic import Subject, Topic
 from app.models.assessment import Assessment, Attempt
@@ -459,9 +461,42 @@ class ReportService:
             raise NotFoundError("Subject not found.")
 
         # Enrolled students
-        enrollments = Enrollment.query.filter_by(class_id=class_id, status="active").all()
+        enrollments = (
+            Enrollment.query.options(joinedload(Enrollment.student))
+            .filter_by(class_id=class_id, status="active")
+            .all()
+        )
         student_ids = [e.student_id for e in enrollments]
+        students_by_id = {e.student_id: e.student for e in enrollments if e.student is not None}
         total_students = len(student_ids)
+
+        topics = Topic.query.filter_by(subject_id=subject_id).order_by(Topic.order_index).all()
+        topic_ids = [t.id for t in topics]
+
+        latest_mr_map = {}
+        attempts_by_student = {}
+        if student_ids:
+            for att in (
+                Attempt.query.join(Assessment, Attempt.assessment_id == Assessment.id)
+                .filter(
+                    Attempt.student_id.in_(student_ids),
+                    Assessment.subject_id == subject_id,
+                    Attempt.status.in_(["submitted", "scored"]),
+                )
+                .all()
+            ):
+                attempts_by_student.setdefault(att.student_id, []).append(att)
+
+            if topic_ids:
+                for mr in (
+                    MasteryRecord.query.filter(
+                        MasteryRecord.student_id.in_(student_ids),
+                        MasteryRecord.topic_id.in_(topic_ids),
+                    )
+                    .order_by(MasteryRecord.calculated_at.desc(), MasteryRecord.id.desc())
+                    .all()
+                ):
+                    latest_mr_map.setdefault((mr.student_id, mr.topic_id), mr)
 
         if total_students == 0:
             student_roster = []
@@ -486,20 +521,11 @@ class ReportService:
             }
 
             for s_id in student_ids:
-                s_user = User.query.get(s_id)
+                s_user = students_by_id.get(s_id)
                 if not s_user:
                     continue
 
-                # Student attempts in this subject
-                s_attempts = (
-                    Attempt.query.join(Assessment, Attempt.assessment_id == Assessment.id)
-                    .filter(
-                        Attempt.student_id == s_id,
-                        Assessment.subject_id == subject_id,
-                        Attempt.status.in_(["submitted", "scored"]),
-                    )
-                    .all()
-                )
+                s_attempts = attempts_by_student.get(s_id, [])
                 s_acc = (
                     round(sum(a.percentage or 0.0 for a in s_attempts) / len(s_attempts), 1)
                     if s_attempts
@@ -507,17 +533,11 @@ class ReportService:
                 )
                 all_student_accuracies.append(s_acc)
 
-                # Student average mastery across topics
-                topics = Topic.query.filter_by(subject_id=subject_id).all()
-                t_scores = []
-                for t in topics:
-                    latest_mr = (
-                        MasteryRecord.query.filter_by(student_id=s_id, topic_id=t.id)
-                        .order_by(MasteryRecord.calculated_at.desc())
-                        .first()
-                    )
-                    if latest_mr:
-                        t_scores.append(latest_mr.mastery_score)
+                t_scores = [
+                    latest_mr_map[(s_id, t.id)].mastery_score
+                    for t in topics
+                    if (s_id, t.id) in latest_mr_map
+                ]
 
                 s_mastery = round(sum(t_scores) / len(t_scores), 1) if t_scores else 0.0
                 all_student_masteries.append(s_mastery)
@@ -558,18 +578,13 @@ class ReportService:
             )
 
         # 2. Topic Curriculum Heatmap & Class Averages
-        topics = Topic.query.filter_by(subject_id=subject_id).order_by(Topic.order_index).all()
         topic_matrix = []
         for topic in topics:
-            scores_for_topic = []
-            for s_id in student_ids:
-                latest_mr = (
-                    MasteryRecord.query.filter_by(student_id=s_id, topic_id=topic.id)
-                    .order_by(MasteryRecord.calculated_at.desc())
-                    .first()
-                )
-                if latest_mr:
-                    scores_for_topic.append(latest_mr.mastery_score)
+            scores_for_topic = [
+                latest_mr_map[(s_id, topic.id)].mastery_score
+                for s_id in student_ids
+                if (s_id, topic.id) in latest_mr_map
+            ]
 
             t_avg = (
                 round(sum(scores_for_topic) / len(scores_for_topic), 1)
@@ -589,10 +604,13 @@ class ReportService:
 
         # 3. Class Misconception Frequency
         error_flags = (
-            ErrorPatternFlag.query.filter(ErrorPatternFlag.student_id.in_(student_ids))
+            ErrorPatternFlag.query.options(joinedload(ErrorPatternFlag.error_tag))
+            .filter(ErrorPatternFlag.student_id.in_(student_ids))
             .join(Topic, ErrorPatternFlag.topic_id == Topic.id)
             .filter(Topic.subject_id == subject_id)
             .all()
+            if student_ids
+            else []
         )
         flag_counts: Dict[str, Dict[str, Any]] = {}
         for ef in error_flags:

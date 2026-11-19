@@ -1,5 +1,8 @@
 from datetime import datetime
 
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+
 from app.extensions import db
 from app.models.academic import Subject, Topic
 from app.models.assessment import Answer, Assessment, AssessmentQuestion, Attempt
@@ -37,11 +40,15 @@ class AnalyticsService:
 
         # Topics for mathematics
         topics = Topic.query.order_by(Topic.order_index.asc()).all()
+        topics_by_id = {t.id: t for t in topics}
+        mastery_map = MasteryService.get_latest_mastery_map(
+            [student_id], [t.id for t in topics], topics_by_id=topics_by_id
+        )
         topic_summaries = []
         mastery_scores = []
 
         for t in topics:
-            m = MasteryService.get_latest_mastery(student_id, t.id)
+            m = mastery_map.get((student_id, t.id)) or MasteryService.get_latest_mastery(student_id, t.id)
             topic_summaries.append({
                 "topic_id": t.id,
                 "title": t.title,
@@ -105,9 +112,13 @@ class AnalyticsService:
     def get_student_mastery(student_id):
         """Returns topic-by-topic mastery breakdowns with all 4 explainable components."""
         topics = Topic.query.order_by(Topic.order_index.asc()).all()
+        topics_by_id = {t.id: t for t in topics}
+        mastery_map = MasteryService.get_latest_mastery_map(
+            [student_id], [t.id for t in topics], topics_by_id=topics_by_id
+        )
         records = []
         for t in topics:
-            m = MasteryService.get_latest_mastery(student_id, t.id)
+            m = mastery_map.get((student_id, t.id)) or MasteryService.get_latest_mastery(student_id, t.id)
             records.append({
                 "topic_id": t.id,
                 "topic_title": t.title,
@@ -155,13 +166,30 @@ class AnalyticsService:
     @staticmethod
     def get_teacher_classes(teacher_id):
         """Returns all classes and subjects assigned to the authenticated teacher."""
-        assignments = TeacherAssignment.query.filter_by(teacher_id=teacher_id).all()
+        assignments = (
+            TeacherAssignment.query.options(
+                joinedload(TeacherAssignment.classroom),
+                joinedload(TeacherAssignment.subject),
+            )
+            .filter_by(teacher_id=teacher_id)
+            .all()
+        )
+        class_ids = list({ta.class_id for ta in assignments if ta.classroom})
+        counts_by_class = {}
+        if class_ids:
+            count_rows = (
+                db.session.query(Enrollment.class_id, func.count(Enrollment.id))
+                .filter(Enrollment.class_id.in_(class_ids), Enrollment.status == "active")
+                .group_by(Enrollment.class_id)
+                .all()
+            )
+            counts_by_class = {cid: int(cnt) for cid, cnt in count_rows}
+
         classes_data = []
         for ta in assignments:
             c = ta.classroom
             if not c:
                 continue
-            enrolled_count = Enrollment.query.filter_by(class_id=c.id, status="active").count()
             classes_data.append({
                 "class_id": c.id,
                 "class_name": c.name,
@@ -170,7 +198,7 @@ class AnalyticsService:
                 "academic_year": c.academic_year,
                 "subject_id": ta.subject_id,
                 "subject_name": ta.subject.name if ta.subject else None,
-                "enrolled_students_count": enrolled_count,
+                "enrolled_students_count": counts_by_class.get(c.id, 0),
             })
         return classes_data
 
@@ -204,6 +232,10 @@ class AnalyticsService:
         total_enrolled = len(student_ids)
 
         topics = Topic.query.order_by(Topic.order_index.asc()).all()
+        topics_by_id = {t.id: t for t in topics}
+        mastery_map = MasteryService.get_latest_mastery_map(
+            student_ids, [t.id for t in topics], topics_by_id=topics_by_id
+        )
 
         band_counts = {
             "Needs strong support": 0,
@@ -216,8 +248,8 @@ class AnalyticsService:
         for sid in student_ids:
             scores = []
             for t in topics:
-                m = MasteryService.get_latest_mastery(sid, t.id)
-                if m["evidence_count"] > 0:
+                m = mastery_map.get((sid, t.id))
+                if m and m["evidence_count"] > 0:
                     scores.append(m["mastery_score"])
             if scores:
                 avg_m = round(sum(scores) / float(len(scores)), 1)
@@ -237,8 +269,7 @@ class AnalyticsService:
             else 0.0
         )
 
-        assessments = Assessment.query.filter_by(class_id=class_id).all()
-        total_assessments = len(assessments)
+        total_assessments = Assessment.query.filter_by(class_id=class_id).count()
         completed_attempts_count = 0
         if student_ids:
             completed_attempts_count = Attempt.query.filter(
@@ -275,11 +306,19 @@ class AnalyticsService:
     def get_class_mastery_matrix(teacher_id, class_id):
         """Returns topic-by-topic heatmap and band distribution across all enrolled students."""
         AnalyticsService.verify_teacher_class_access(teacher_id, class_id)
-        enrollments = Enrollment.query.filter_by(class_id=class_id, status="active").all()
+        enrollments = (
+            Enrollment.query.options(joinedload(Enrollment.student))
+            .filter_by(class_id=class_id, status="active")
+            .all()
+        )
         student_ids = [e.student_id for e in enrollments]
         student_names = {e.student_id: (e.student.name if e.student else f"Student {e.student_id}") for e in enrollments}
 
         topics = Topic.query.order_by(Topic.order_index.asc()).all()
+        topics_by_id = {t.id: t for t in topics}
+        mastery_map = MasteryService.get_latest_mastery_map(
+            student_ids, [t.id for t in topics], topics_by_id=topics_by_id
+        )
         matrix = []
 
         for t in topics:
@@ -293,7 +332,7 @@ class AnalyticsService:
             students_summary = []
 
             for sid in student_ids:
-                m = MasteryService.get_latest_mastery(sid, t.id)
+                m = mastery_map.get((sid, t.id)) or MasteryService.get_latest_mastery(sid, t.id)
                 scores.append(m["mastery_score"])
                 band = m["band"]
                 topic_bands[band] = topic_bands.get(band, 0) + 1
@@ -329,8 +368,44 @@ class AnalyticsService:
         - Latest assessment attempt
         """
         AnalyticsService.verify_teacher_class_access(teacher_id, class_id)
-        enrollments = Enrollment.query.filter_by(class_id=class_id, status="active").all()
+        enrollments = (
+            Enrollment.query.options(joinedload(Enrollment.student))
+            .filter_by(class_id=class_id, status="active")
+            .all()
+        )
+        student_ids = [e.student_id for e in enrollments if e.student is not None]
         topics = Topic.query.order_by(Topic.order_index.asc()).all()
+        topics_by_id = {t.id: t for t in topics}
+        mastery_map = MasteryService.get_latest_mastery_map(
+            student_ids, [t.id for t in topics], topics_by_id=topics_by_id
+        )
+
+        flag_counts_by_student = {}
+        latest_attempt_by_student = {}
+        if student_ids:
+            flag_rows = (
+                db.session.query(ErrorPatternFlag.student_id, func.count(ErrorPatternFlag.id))
+                .filter(
+                    ErrorPatternFlag.student_id.in_(student_ids),
+                    ErrorPatternFlag.status.in_(["suspected", "reviewed"]),
+                )
+                .group_by(ErrorPatternFlag.student_id)
+                .all()
+            )
+            flag_counts_by_student = {sid: int(cnt) for sid, cnt in flag_rows}
+
+            recent_attempts = (
+                Attempt.query.options(joinedload(Attempt.assessment))
+                .filter(
+                    Attempt.student_id.in_(student_ids),
+                    Attempt.status.in_(["submitted", "scored"]),
+                )
+                .order_by(Attempt.submitted_at.desc(), Attempt.id.desc())
+                .all()
+            )
+            for att in recent_attempts:
+                if att.student_id not in latest_attempt_by_student:
+                    latest_attempt_by_student[att.student_id] = att
 
         roster = []
         for e in enrollments:
@@ -343,7 +418,7 @@ class AnalyticsService:
             needs_support_topics = 0
 
             for t in topics:
-                m = MasteryService.get_latest_mastery(s.id, t.id)
+                m = mastery_map.get((s.id, t.id)) or MasteryService.get_latest_mastery(s.id, t.id)
                 topic_masteries.append({
                     "topic_id": t.id,
                     "topic_title": t.title,
@@ -367,16 +442,8 @@ class AnalyticsService:
             else:
                 support_category = "Ready for next level"
 
-            active_flags = ErrorPatternFlag.query.filter_by(
-                student_id=s.id
-            ).filter(ErrorPatternFlag.status.in_(["suspected", "reviewed"])).count()
-
-            latest_attempt = (
-                Attempt.query.filter_by(student_id=s.id)
-                .filter(Attempt.status.in_(["submitted", "scored"]))
-                .order_by(Attempt.submitted_at.desc())
-                .first()
-            )
+            active_flags = flag_counts_by_student.get(s.id, 0)
+            latest_attempt = latest_attempt_by_student.get(s.id)
 
             latest_activity = None
             if latest_attempt:
@@ -502,7 +569,12 @@ class AnalyticsService:
             return {"class_id": class_id, "error_patterns": []}
 
         flags = (
-            ErrorPatternFlag.query.filter(ErrorPatternFlag.student_id.in_(student_ids))
+            ErrorPatternFlag.query.options(
+                joinedload(ErrorPatternFlag.error_tag),
+                joinedload(ErrorPatternFlag.topic),
+                joinedload(ErrorPatternFlag.student),
+            )
+            .filter(ErrorPatternFlag.student_id.in_(student_ids))
             .filter(ErrorPatternFlag.status.in_(["suspected", "reviewed"]))
             .all()
         )

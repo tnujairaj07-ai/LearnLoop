@@ -1,5 +1,7 @@
 import pytest
+from sqlalchemy import event
 
+from app.extensions import db
 from app.models.academic import Topic
 from app.models.assessment import Answer, Attempt
 from app.models.content import Question
@@ -234,3 +236,55 @@ def test_student_routes_role_guards(seeded_client):
     # Teacher accessing student dashboard gets 403 Forbidden (@student_required)
     resp = seeded_client.get("/api/student/dashboard", headers=teacher_headers)
     assert resp.status_code == 403
+
+
+def test_latest_mastery_map_matches_single_topic_queries(app, seeded_client):
+    from app.models.user import User
+
+    with app.app_context():
+        student = User.query.filter_by(email="student.a@learnloop.demo").first()
+        topics = Topic.query.order_by(Topic.order_index.asc()).all()
+        assert student is not None and len(topics) >= 2
+
+        MasteryService.calculate_and_persist_mastery(student.id, topics[0].id)
+        batch_map = MasteryService.get_latest_mastery_map(
+            [student.id], [t.id for t in topics]
+        )
+
+        for t in topics:
+            single = MasteryService.get_latest_mastery(student.id, t.id)
+            batched = batch_map[(student.id, t.id)]
+            assert batched["mastery_score"] == single["mastery_score"]
+            assert batched["band"] == single["band"]
+            assert batched["evidence_count"] == single["evidence_count"]
+            assert batched["accuracy_component"] == single["accuracy_component"]
+
+
+def test_teacher_dashboard_and_matrix_use_bounded_queries(app, seeded_client):
+    from app.models.user import Class
+
+    teacher_headers = _login(seeded_client, "teacher@learnloop.demo")
+    with app.app_context():
+        cls = Class.query.first()
+        assert cls is not None
+        class_id = cls.id
+
+        counter = {"queries": 0}
+
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            counter["queries"] += 1
+
+        event.listen(db.engine, "before_cursor_execute", _count)
+        try:
+            for endpoint in (
+                f"/api/teacher/dashboard?class_id={class_id}",
+                f"/api/teacher/classes/{class_id}/mastery-matrix",
+                f"/api/teacher/classes/{class_id}/students",
+                "/api/teacher/my-class",
+            ):
+                counter["queries"] = 0
+                resp = seeded_client.get(endpoint, headers=teacher_headers)
+                assert resp.status_code == 200
+                assert counter["queries"] <= 30, f"{endpoint} executed {counter['queries']} queries"
+        finally:
+            event.remove(db.engine, "before_cursor_execute", _count)

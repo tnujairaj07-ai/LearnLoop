@@ -7,6 +7,7 @@ import { useApi } from '../../hooks/useApi'
 import { classesService } from '../../services/classesService'
 import { analyticsService } from '../../services/analyticsService'
 import { interventionsService } from '../../services/interventionsService'
+import { groupTeacherClasses } from '../../lib/teacherHelpers'
 
 export default function TeacherDashboardPage() {
   const { user } = useAuth()
@@ -18,22 +19,23 @@ export default function TeacherDashboardPage() {
 
   const classesApi = useApi(() => classesService.listForTeacher(), [])
   const assignedClasses = useMemo(() => classesApi.data || [], [classesApi.data])
+  const uniqueClasses = useMemo(() => groupTeacherClasses(assignedClasses), [assignedClasses])
 
   const effectiveClassId = useMemo(() => {
     if (selectedClassId) return Number(selectedClassId)
-    return assignedClasses[0]?.class_id || null
-  }, [selectedClassId, assignedClasses])
+    return uniqueClasses[0]?.class_id || null
+  }, [selectedClassId, uniqueClasses])
 
   const dashboardApi = useApi(
     () => analyticsService.teacherDashboard(effectiveClassId),
     [effectiveClassId],
-    { skip: classesApi.status === 'loading' }
+    { skip: classesApi.status !== 'success' }
   )
 
   const activityApi = useApi(
     () => analyticsService.realtimeActivity({ classId: effectiveClassId }),
     [effectiveClassId],
-    { skip: classesApi.status === 'loading' || !effectiveClassId }
+    { skip: classesApi.status !== 'success' || !effectiveClassId }
   )
 
   const dash = dashboardApi.data
@@ -289,9 +291,9 @@ export default function TeacherDashboardPage() {
                       onChange={(e) => setSelectedClassId(e.target.value)}
                       className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-hidden"
                     >
-                      {assignedClasses.map((c) => (
-                        <option key={`${c.class_id}-${c.subject_id || 'all'}`} value={c.class_id}>
-                          {c.class_name} ({c.subject_name || 'Class'})
+                      {uniqueClasses.map((c) => (
+                        <option key={c.class_id} value={c.class_id}>
+                          {c.class_name} ({c.subjects.join(', ') || 'Class'})
                         </option>
                       ))}
                     </select>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { Sidebar } from './Sidebar'
@@ -33,18 +33,15 @@ export function AppShell() {
           <Brand size="sm" />
         </div>
 
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="flex min-w-0 flex-1 flex-col"
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={location.pathname}
+          initial={{ opacity: 0.92, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.14, ease: 'easeOut' }}
+          className="flex min-w-0 flex-1 flex-col"
+        >
+          <Outlet />
+        </motion.div>
       </div>
     </div>
   )

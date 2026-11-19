@@ -8,6 +8,7 @@ import { useApi } from '../../hooks/useApi'
 import { classesService } from '../../services/classesService'
 import { interventionsService } from '../../services/interventionsService'
 import { topicsService } from '../../services/topicsService'
+import { groupTeacherClasses } from '../../lib/teacherHelpers'
 
 export default function InterventionQueuePage() {
   const navigate = useNavigate()
@@ -30,9 +31,10 @@ export default function InterventionQueuePage() {
   const topicsApi = useApi(() => topicsService.listAll(), [])
 
   const assignedClasses = useMemo(() => classesApi.data || [], [classesApi.data])
+  const uniqueClasses = useMemo(() => groupTeacherClasses(assignedClasses), [assignedClasses])
   const topicsList = useMemo(() => topicsApi.data || [], [topicsApi.data])
 
-  const activeClassId = classId ? Number(classId) : assignedClasses[0]?.class_id || null
+  const activeClassId = classId ? Number(classId) : uniqueClasses[0]?.class_id || null
 
   useEffect(() => {
     if (!newTopicId && topicsList.length > 0) {
@@ -195,9 +197,9 @@ export default function InterventionQueuePage() {
                   onChange={(e) => setClassId(e.target.value)}
                   aria-label="Select class"
                 >
-                  {assignedClasses.map((cls) => (
-                    <option key={`${cls.class_id}-${cls.subject_id || 'all'}`} value={cls.class_id}>
-                      {cls.class_name} · {cls.subject_name || 'Class'}
+                  {uniqueClasses.map((cls) => (
+                    <option key={cls.class_id} value={cls.class_id}>
+                      {cls.class_name} · {cls.subjects.join(', ') || 'Class'}
                     </option>
                   ))}
                 </select>

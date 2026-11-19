@@ -4,6 +4,9 @@ homeroom management, topic analytics, student profiles, notes, reminders, and at
 
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+
 from app.extensions import db
 from app.models.academic import ResourceView, Subject, Topic
 from app.models.assessment import Answer, Attempt
@@ -109,7 +112,11 @@ class TeacherPortalService:
         classroom = TeacherPortalService._verify_class_or_homeroom_access(
             actor_id, actor_role, resolved_class_id
         )
-        enrollments = Enrollment.query.filter_by(class_id=resolved_class_id, status="active").all()
+        enrollments = (
+            Enrollment.query.options(joinedload(Enrollment.student))
+            .filter_by(class_id=resolved_class_id, status="active")
+            .all()
+        )
         students_by_id = {e.student_id: e.student for e in enrollments if e.student is not None}
         student_ids = list(students_by_id.keys())
 
@@ -131,32 +138,30 @@ class TeacherPortalService:
                 "active_error_flags_count": 0,
             }
 
-        # Weekly engagement series (7 rolling days this week vs previous week)
+        # Batch daily activities for all enrolled students (rolling weekly curve + consistency streaks)
         today_date = datetime.utcnow().date()
         week_start = today_date - timedelta(days=today_date.weekday())
+        all_daily_rows = (
+            StudentDailyActivity.query.filter(StudentDailyActivity.student_id.in_(student_ids)).all()
+            if student_ids
+            else []
+        )
+        mins_by_date = {}
+        act_rows_by_student = {}
+        for r in all_daily_rows:
+            mins_by_date[r.activity_date] = mins_by_date.get(r.activity_date, 0) + int(r.active_minutes or 0)
+            act_rows_by_student.setdefault(r.student_id, []).append(r)
+
         day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         weekly_engagement = []
         for idx, day_lbl in enumerate(day_labels):
             d_cur = week_start + timedelta(days=idx)
             d_prev = d_cur - timedelta(days=7)
-            this_mins = 0
-            last_mins = 0
-            if student_ids:
-                this_rows = StudentDailyActivity.query.filter(
-                    StudentDailyActivity.student_id.in_(student_ids),
-                    StudentDailyActivity.activity_date == d_cur,
-                ).all()
-                last_rows = StudentDailyActivity.query.filter(
-                    StudentDailyActivity.student_id.in_(student_ids),
-                    StudentDailyActivity.activity_date == d_prev,
-                ).all()
-                this_mins = sum(int(r.active_minutes or 0) for r in this_rows)
-                last_mins = sum(int(r.active_minutes or 0) for r in last_rows)
             weekly_engagement.append({
                 "day": day_lbl,
                 "date": d_cur.isoformat(),
-                "this_week": this_mins,
-                "last_week": last_mins,
+                "this_week": mins_by_date.get(d_cur, 0),
+                "last_week": mins_by_date.get(d_prev, 0),
             })
 
         # Today's hourly StudySession distribution
@@ -176,6 +181,9 @@ class TeacherPortalService:
             for h, count in sorted(hourly_counts.items())
         ]
 
+        topics = Topic.query.all()
+        topics_by_id = {t.id: t for t in topics}
+
         # Top gainers from LearningGainRecord
         top_gainers = []
         if student_ids:
@@ -187,7 +195,7 @@ class TeacherPortalService:
             )
             for gr in gain_rows:
                 stu = students_by_id.get(gr.student_id)
-                gr_topic = db.session.get(Topic, gr.topic_id) if gr.topic_id else None
+                gr_topic = topics_by_id.get(gr.topic_id) if gr.topic_id else None
                 top_gainers.append({
                     "student_id": gr.student_id,
                     "name": stu.name if stu else f"Student {gr.student_id}",
@@ -198,10 +206,10 @@ class TeacherPortalService:
                     "band": MasteryService.get_mastery_band(float(gr.after_mastery or 0.0)),
                 })
 
-        # Most consistent learners via StudentDailyActivity streak
+        # Most consistent learners via batched StudentDailyActivity streak
         consistency_list = []
         for sid, stu in students_by_id.items():
-            act_rows = StudentDailyActivity.query.filter_by(student_id=sid).all()
+            act_rows = act_rows_by_student.get(sid, [])
             dates = [r.activity_date for r in act_rows if (r.questions_answered or 0) > 0]
             if not dates:
                 continue
@@ -217,21 +225,32 @@ class TeacherPortalService:
             })
         consistency_list.sort(key=lambda x: (-x["streak"], -x["active_days"], -x["total_minutes"]))
 
-        # Needs attention via latest topic mastery & active flags
-        topics = Topic.query.all()
+        # Needs attention via batched latest topic mastery & active flag counts
+        mastery_map = MasteryService.get_latest_mastery_map(
+            student_ids, [t.id for t in topics], topics_by_id=topics_by_id
+        )
+        flag_counts_by_student = {}
+        if student_ids:
+            flag_rows = (
+                db.session.query(ErrorPatternFlag.student_id, func.count(ErrorPatternFlag.id))
+                .filter(
+                    ErrorPatternFlag.student_id.in_(student_ids),
+                    ErrorPatternFlag.status.in_(["suspected", "reviewed"]),
+                )
+                .group_by(ErrorPatternFlag.student_id)
+                .all()
+            )
+            flag_counts_by_student = {sid: int(cnt) for sid, cnt in flag_rows}
+
         needs_attention = []
         for sid, stu in students_by_id.items():
             scores = []
             for t in topics:
-                m = MasteryService.get_latest_mastery(sid, t.id)
-                if m["evidence_count"] > 0:
+                m = mastery_map.get((sid, t.id))
+                if m and m["evidence_count"] > 0:
                     scores.append((t.title, m["mastery_score"]))
             avg_m = round(sum(s for _, s in scores) / float(len(scores)), 1) if scores else None
-            flags_count = (
-                ErrorPatternFlag.query.filter_by(student_id=sid)
-                .filter(ErrorPatternFlag.status.in_(["suspected", "reviewed"]))
-                .count()
-            )
+            flags_count = flag_counts_by_student.get(sid, 0)
             if (avg_m is not None and avg_m < 60.0) or flags_count > 0:
                 weakest_topic = min(scores, key=lambda x: x[1])[0] if scores else "Core Mathematics"
                 needs_attention.append({
@@ -246,7 +265,8 @@ class TeacherPortalService:
         needs_attention.sort(key=lambda x: (x["mastery"], -x["active_flags"]))
 
         interventions = (
-            Intervention.query.filter_by(class_id=resolved_class_id)
+            Intervention.query.options(joinedload(Intervention.students))
+            .filter_by(class_id=resolved_class_id)
             .filter(Intervention.status.in_(["suggested", "reviewed", "assigned", "in_progress"]))
             .order_by(Intervention.created_at.desc())
             .limit(6)
@@ -254,7 +274,7 @@ class TeacherPortalService:
         )
         pending_interventions = []
         for inv in interventions:
-            inv_topic = db.session.get(Topic, inv.topic_id) if inv.topic_id else None
+            inv_topic = topics_by_id.get(inv.topic_id) if inv.topic_id else None
             pending_interventions.append({
                 "id": inv.id,
                 "title": inv.title,
@@ -306,9 +326,53 @@ class TeacherPortalService:
         classroom = TeacherPortalService._verify_class_or_homeroom_access(
             actor_id, actor_role, resolved_class_id
         )
-        enrollments = Enrollment.query.filter_by(class_id=resolved_class_id, status="active").all()
+        enrollments = (
+            Enrollment.query.options(joinedload(Enrollment.student))
+            .filter_by(class_id=resolved_class_id, status="active")
+            .all()
+        )
+        student_ids = [e.student.id for e in enrollments if e.student is not None]
         day_start = datetime.combine(target_date, datetime.min.time())
         day_end = datetime.combine(target_date, datetime.max.time())
+
+        att_by_student = {}
+        sessions_by_student = {}
+        daily_by_student = {}
+        latest_attempt_by_student = {}
+        if student_ids:
+            for att_rec in AttendanceRecord.query.filter(
+                AttendanceRecord.student_id.in_(student_ids),
+                AttendanceRecord.class_id == resolved_class_id,
+                AttendanceRecord.attendance_date == target_date,
+            ).all():
+                att_by_student.setdefault(att_rec.student_id, att_rec)
+
+            for sess in (
+                StudySession.query.filter(
+                    StudySession.user_id.in_(student_ids),
+                    StudySession.started_at >= day_start,
+                    StudySession.started_at <= day_end,
+                )
+                .order_by(StudySession.started_at.desc())
+                .all()
+            ):
+                sessions_by_student.setdefault(sess.user_id, []).append(sess)
+
+            for daily_rec in StudentDailyActivity.query.filter(
+                StudentDailyActivity.student_id.in_(student_ids),
+                StudentDailyActivity.activity_date == target_date,
+            ).all():
+                daily_by_student.setdefault(daily_rec.student_id, daily_rec)
+
+            for att in (
+                Attempt.query.filter(
+                    Attempt.student_id.in_(student_ids),
+                    Attempt.status.in_(["submitted", "scored"]),
+                )
+                .order_by(Attempt.submitted_at.desc(), Attempt.id.desc())
+                .all()
+            ):
+                latest_attempt_by_student.setdefault(att.student_id, att)
 
         student_rows = []
         attended_count = 0
@@ -319,24 +383,10 @@ class TeacherPortalService:
             if not stu:
                 continue
 
-            att_rec = AttendanceRecord.query.filter_by(
-                student_id=stu.id, class_id=resolved_class_id, attendance_date=target_date
-            ).first()
-            sessions = (
-                StudySession.query.filter_by(user_id=stu.id)
-                .filter(StudySession.started_at >= day_start, StudySession.started_at <= day_end)
-                .order_by(StudySession.started_at.desc())
-                .all()
-            )
-            daily_rec = StudentDailyActivity.query.filter_by(
-                student_id=stu.id, activity_date=target_date
-            ).first()
-            latest_attempt = (
-                Attempt.query.filter_by(student_id=stu.id)
-                .filter(Attempt.status.in_(["submitted", "scored"]))
-                .order_by(Attempt.submitted_at.desc())
-                .first()
-            )
+            att_rec = att_by_student.get(stu.id)
+            sessions = sessions_by_student.get(stu.id, [])
+            daily_rec = daily_by_student.get(stu.id)
+            latest_attempt = latest_attempt_by_student.get(stu.id)
 
             active_mins = sum(int(s.duration_minutes or 0) for s in sessions)
             if active_mins == 0 and daily_rec:
@@ -473,11 +523,55 @@ class TeacherPortalService:
             .first()
         )
         today_date = datetime.utcnow().date()
-        enrollments = Enrollment.query.filter_by(class_id=target_class.id, status="active").all()
+        enrollments = (
+            Enrollment.query.options(joinedload(Enrollment.student))
+            .filter_by(class_id=target_class.id, status="active")
+            .all()
+        )
+        student_ids = [e.student.id for e in enrollments if e.student is not None]
         subjects = Subject.query.filter_by(status="active").all()
-        subject_topics = {
-            s.id: Topic.query.filter_by(subject_id=s.id).all() for s in subjects
-        }
+        subject_ids = [s.id for s in subjects]
+        all_topics = (
+            Topic.query.filter(Topic.subject_id.in_(subject_ids)).all() if subject_ids else []
+        )
+        topics_by_id = {t.id: t for t in all_topics}
+        subject_topics = {}
+        for t in all_topics:
+            subject_topics.setdefault(t.subject_id, []).append(t)
+
+        att_today_by_student = {}
+        active_today_user_ids = set()
+        latest_gain_by_student = {}
+        if student_ids:
+            for rec in AttendanceRecord.query.filter(
+                AttendanceRecord.student_id.in_(student_ids),
+                AttendanceRecord.class_id == target_class.id,
+                AttendanceRecord.attendance_date == today_date,
+            ).all():
+                att_today_by_student.setdefault(rec.student_id, rec)
+
+            today_start = datetime.combine(today_date, datetime.min.time())
+            active_today_user_ids = {
+                row[0]
+                for row in db.session.query(StudySession.user_id)
+                .filter(
+                    StudySession.user_id.in_(student_ids),
+                    StudySession.started_at >= today_start,
+                )
+                .distinct()
+                .all()
+            }
+
+            for gr in (
+                LearningGainRecord.query.filter(LearningGainRecord.student_id.in_(student_ids))
+                .order_by(LearningGainRecord.calculated_at.desc(), LearningGainRecord.id.desc())
+                .all()
+            ):
+                latest_gain_by_student.setdefault(gr.student_id, gr)
+
+        mastery_map = MasteryService.get_latest_mastery_map(
+            student_ids, [t.id for t in all_topics], topics_by_id=topics_by_id
+        )
 
         students_data = []
         for e in enrollments:
@@ -485,15 +579,8 @@ class TeacherPortalService:
             if not stu:
                 continue
 
-            att_today = AttendanceRecord.query.filter_by(
-                student_id=stu.id, class_id=target_class.id, attendance_date=today_date
-            ).first()
-            has_session_today = (
-                StudySession.query.filter_by(user_id=stu.id)
-                .filter(StudySession.started_at >= datetime.combine(today_date, datetime.min.time()))
-                .count()
-                > 0
-            )
+            att_today = att_today_by_student.get(stu.id)
+            has_session_today = stu.id in active_today_user_ids
             attendance_status = (
                 "attended"
                 if (att_today and att_today.status in ("present", "late")) or has_session_today
@@ -505,19 +592,15 @@ class TeacherPortalService:
             for subj in subjects:
                 s_scores = []
                 for t in subject_topics.get(subj.id, []):
-                    m = MasteryService.get_latest_mastery(stu.id, t.id)
-                    if m["evidence_count"] > 0:
+                    m = mastery_map.get((stu.id, t.id))
+                    if m and m["evidence_count"] > 0:
                         s_scores.append(m["mastery_score"])
                         all_scores.append(m["mastery_score"])
                 if s_scores:
                     subject_masteries[subj.name] = round(sum(s_scores) / float(len(s_scores)), 1)
 
             overall_avg = round(sum(all_scores) / float(len(all_scores)), 1) if all_scores else 0.0
-            latest_gain = (
-                LearningGainRecord.query.filter_by(student_id=stu.id)
-                .order_by(LearningGainRecord.calculated_at.desc())
-                .first()
-            )
+            latest_gain = latest_gain_by_student.get(stu.id)
 
             students_data.append({
                 "id": stu.id,
@@ -668,8 +751,15 @@ class TeacherPortalService:
         if not topic:
             raise LookupError(f"Topic with ID {topic_id} not found.")
 
-        enrollments = Enrollment.query.filter_by(class_id=class_id, status="active").all()
+        enrollments = (
+            Enrollment.query.options(joinedload(Enrollment.student))
+            .filter_by(class_id=class_id, status="active")
+            .all()
+        )
         student_ids = [e.student_id for e in enrollments]
+        mastery_map = MasteryService.get_latest_mastery_map(
+            student_ids, [topic_id], topics_by_id={topic.id: topic}
+        )
 
         bands = {
             "Needs strong support": 0,
@@ -679,7 +769,9 @@ class TeacherPortalService:
         }
         student_scores = []
         for e in enrollments:
-            m = MasteryService.get_latest_mastery(e.student_id, topic_id)
+            m = mastery_map.get((e.student_id, topic_id)) or MasteryService.get_latest_mastery(
+                e.student_id, topic_id
+            )
             bands[m["band"]] = bands.get(m["band"], 0) + 1
             student_scores.append({
                 "student_id": e.student_id,
@@ -697,10 +789,12 @@ class TeacherPortalService:
 
         # Error patterns for this topic in this class
         flags = (
-            ErrorPatternFlag.query.filter(
+            ErrorPatternFlag.query.options(joinedload(ErrorPatternFlag.error_tag))
+            .filter(
                 ErrorPatternFlag.topic_id == topic_id,
-                ErrorPatternFlag.student_id.in_(student_ids) if student_ids else False,
-            ).all()
+                ErrorPatternFlag.student_id.in_(student_ids),
+            )
+            .all()
             if student_ids
             else []
         )
@@ -711,21 +805,27 @@ class TeacherPortalService:
                 ep_counts[tag_name] = {"id": f.error_tag_id, "label": tag_name, "count": 0}
             ep_counts[tag_name]["count"] += 1
 
-        # Question accuracy across enrolled students' scored attempts
+        # Question accuracy across enrolled students' scored attempts (batched in 1 query)
         diff_labels = {1: "easy", 2: "medium", 3: "hard"}
-        questions_data = []
-        for q in Question.query.filter_by(topic_id=topic_id).order_by(Question.id.asc()).all():
-            answers = (
+        topic_questions = Question.query.filter_by(topic_id=topic_id).order_by(Question.id.asc()).all()
+        question_ids = [q.id for q in topic_questions]
+        answers_by_question = {}
+        if student_ids and question_ids:
+            all_answers = (
                 Answer.query.join(Attempt, Answer.attempt_id == Attempt.id)
                 .filter(
-                    Answer.question_id == q.id,
+                    Answer.question_id.in_(question_ids),
                     Attempt.student_id.in_(student_ids),
                     Attempt.status.in_(["submitted", "scored"]),
                 )
                 .all()
-                if student_ids
-                else []
             )
+            for a in all_answers:
+                answers_by_question.setdefault(a.question_id, []).append(a)
+
+        questions_data = []
+        for q in topic_questions:
+            answers = answers_by_question.get(q.id, [])
             tot = len(answers)
             correct = sum(1 for a in answers if a.is_correct)
             questions_data.append({
@@ -758,15 +858,34 @@ class TeacherPortalService:
         )
         classroom = enrollment.classroom if enrollment else None
 
-        # Multi-subject scores strictly for student_id
+        # Multi-subject scores strictly for student_id (batched across all active topics)
+        active_subjects = Subject.query.filter_by(status="active").order_by(Subject.id.asc()).all()
+        active_subject_ids = [s.id for s in active_subjects]
+        all_topics = (
+            Topic.query.options(joinedload(Topic.resources))
+            .filter(Topic.subject_id.in_(active_subject_ids))
+            .order_by(Topic.order_index.asc())
+            .all()
+            if active_subject_ids
+            else []
+        )
+        topics_by_id = {t.id: t for t in all_topics}
+        topics_by_subject = {}
+        for t in all_topics:
+            topics_by_subject.setdefault(t.subject_id, []).append(t)
+
+        mastery_map = MasteryService.get_latest_mastery_map(
+            [student.id], [t.id for t in all_topics], topics_by_id=topics_by_id
+        )
+
         subject_scores = []
         math_subject = None
-        for subj in Subject.query.filter_by(status="active").order_by(Subject.id.asc()).all():
-            topics = Topic.query.filter_by(subject_id=subj.id).all()
+        for subj in active_subjects:
+            topics = topics_by_subject.get(subj.id, [])
             assessed = []
             for t in topics:
-                m = MasteryService.get_latest_mastery(student.id, t.id)
-                if m["evidence_count"] > 0:
+                m = mastery_map.get((student.id, t.id))
+                if m and m["evidence_count"] > 0:
                     assessed.append(m["mastery_score"])
             avg = round(sum(assessed) / float(len(assessed)), 1) if assessed else 0.0
             subject_scores.append({"subject_id": subj.id, "subject": subj.name, "mastery": avg})
@@ -812,12 +931,12 @@ class TeacherPortalService:
         # Lesson progression for main subject
         lesson_progression = []
         if math_subject:
-            topics = Topic.query.filter_by(subject_id=math_subject.id).order_by(Topic.order_index.asc()).all()
+            topics = topics_by_subject.get(math_subject.id, [])
             reviewed_ids = {
                 rv.resource_id for rv in ResourceView.query.filter_by(student_id=student.id).all()
             }
             for t in topics:
-                m = MasteryService.get_latest_mastery(student.id, t.id)
+                m = mastery_map.get((student.id, t.id)) or MasteryService.get_latest_mastery(student.id, t.id)
                 res_viewed = sum(1 for r in t.resources if r.id in reviewed_ids)
                 lesson_progression.append({
                     "topic_id": t.id,
