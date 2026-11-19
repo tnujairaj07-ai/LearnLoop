@@ -4,6 +4,7 @@ Flask-Migrate
 Flask-JWT-Extended
 Flask-CORS
 python-dotenv
+psycopg[binary]
 psycopg2-binary
 pymysql
 cryptography
